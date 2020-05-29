@@ -1,0 +1,62 @@
+{
+  "name": "jexi",
+  "version": "0.0.1",
+  "description": "Jexi is a lisp interpreter with no lisp only json!",
+  "main": "index.js",
+  "scripts": {
+    "start": "NODE_ENV=production node --experimental-modules index.js",
+    "debug": "node --experimental-modules --nolazy --inspect-brk=9229 index.js",
+    "lint": "eslint --format table --ext .js . test index.js --cache",
+    "test": "NODE_ENV=test jest",
+    "test:dev": "NODE_ENV=test jest --watch",
+    "coverage": "NODE_ENV=test jest --coverage --reporter=text",
+    "report": "NODE_ENV=test jest --coverage --reporter=html"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darrencruse/jexi.git"
+  },
+  "keywords": [
+    "json",
+    "lisp",
+    "interpreter",
+    "node.js",
+    "browser",
+    "s-expressions",
+    "template",
+    "language"
+  ],
+  "author": "Darren Cruse",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/darrencruse/jexi/issues"
+  },
+  "homepage": "https://github.com/darrencruse/jexi#readme",
+  "dependencies": {
+    "lodash.castarray": "4.4.0",
+    "lodash.get": "4.4.2",
+    "lodash.set": "4.3.2"
+  },
+  "devDependencies": {
+    "@babel/core": "7.9.0",
+    "@babel/preset-env": "7.9.0",
+    "babel-eslint": "10.0.3",
+    "babel-jest": "25.2.4",
+    "eslint": "5.16.0",
+    "eslint-plugin-jest": "23.8.2",
+    "eslint-plugin-node": "9.0.1",
+    "jest": "25.2.4"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "/**/*.spec.js"
+    ],
+    "collectCoverage": false,
+    "collectCoverageFrom": [
+      "./**/*.{js,mjs}"
+    ],
+    "restoreMocks": true,
+    "verbose": true
+  }
+}
