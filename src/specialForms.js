@@ -5,7 +5,7 @@ export default {
   // $let defines a scope with one or more local variables
   // define one: ["$let", ["$x", 1], [body uses "$x" ]]
   // define multiple: ["$let", [["$x", 1], ["$y", 2]], [body uses "$x" and "$y"]]
-  $let: (form, context, trace, interpret) => {
+  $let: (form, context, trace, evaluate) => {
     trace('in let:', form)
     const letContext = Object.create(context)
     // it's annoying when only defining one var to have to do wrap the var defs:
@@ -14,21 +14,21 @@ export default {
 
     varDefs.forEach(([ name, value ]) => {
       trace('setting', name, 'to:', value)
-      letContext[name] = interpret(value, context)
+      letContext[name] = evaluate(value, context)
       trace('read back:', letContext[name])
     })
 
-    return interpret(form[2], letContext)
+    return evaluate(form[2], letContext)
   },
 
   // $var defines a variable in the current scope
   // e.g. ["$var", "$x", 1] or { "$var": [ "$x": 1 ]}
-  $var: (form, context, trace, interpret) => {
+  $var: (form, context, trace, evaluate) => {
     const name = Array.isArray(form) ? form[1] : form.$var[0]
     const value = Array.isArray(form) ? form[2] : form.$var[1]
 
     trace(`setting ${name} to ${value}`)
-    context[name] = interpret(value, context)
+    context[name] = evaluate(value, context)
 
     // we intentionally evaluate to undefined here
     // because $var defining a function was getting called
@@ -38,8 +38,8 @@ export default {
 
   // $=> = anonymous function
   // ["$=>", [ "$arg1", ..., "$argN"], [ function body ]]
-  '$=>': (declareForm, declareContext, trace, interpret) => {
-    trace('declaring the lambda:', { declareForm, declareContext, interpret })
+  '$=>': (declareForm, declareContext, trace, evaluate) => {
+    trace('declaring the lambda:', { declareForm, declareContext, evaluate })
 
     // return a function called later when the $fn is actually called  
     return (callForm, callContext) => {
@@ -54,20 +54,20 @@ export default {
       })
 
       // evaluate the body of the function with it's args in scope:
-      return interpret(declareForm[2], localContext)
+      return evaluate(declareForm[2], localContext)
     }
   },
 
   // $function = a named function
   // ["$function", "$name", [ "$arg1", ..., "$argN"], [ function body ]]
-  $function: (form, context, _trace, interpret) =>
-    interpret([ '$var', form[1], [ '$=>', form[2], form[3] ]], context),
+  $function: (form, context, _trace, evaluate) =>
+    evaluate([ '$var', form[1], [ '$=>', form[2], form[3] ]], context),
 
   // $if is a special form because it only evaluates one of the if/else clauses
   // e.g. ["$if", ["$>", "$x", 0], "some", "none"]
   // or { "$if" : ["$>", "$x", 0], "then": "some", "else": "none"}
-  $if: (form, context, _trace, interpret) =>
-    interpret(getArg(form, '$if', 1), context) ?
-      interpret(getArg(form, 'then', 2), context) :
-      interpret(getArg(form, 'else', 3), context),
+  $if: (form, context, _trace, evaluate) =>
+    evaluate(getArg(form, '$if', 1), context) ?
+      evaluate(getArg(form, 'then', 2), context) :
+      evaluate(getArg(form, 'else', 3), context),
 }
