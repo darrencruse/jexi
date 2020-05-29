@@ -59,7 +59,7 @@ const interpreter = (options = {}) => {
   const interpretArrayForm = (sform, context) => {
     // special forms are called with their args unevaluated:
     if (sform.length > 0 && specialForms[sform[0]]) {
-      return specialForms[sform[0]](sform, context, interpret, trace)
+      return specialForms[sform[0]](sform, context, trace, interpret)
     }
 
     // regular forms have their args evaluated before they are called
@@ -70,7 +70,7 @@ const interpreter = (options = {}) => {
     if (typeof evaluated[0] === 'function') {
       trace(`sform: calling ${possibleSym}`)
 
-      return evaluated[0].call(undefined, evaluated, context, interpret, trace)
+      return evaluated[0].call(undefined, evaluated, context, trace, interpret)
     }
 
     trace(`sform: ${possibleSym} not a function passing thru as evaluated data`)
@@ -90,7 +90,7 @@ const interpreter = (options = {}) => {
 
     if (symbol) {
       if (specialForms[symbol]) {
-        return specialForms[symbol](oform, context, interpret, interpret, trace)
+        return specialForms[symbol](oform, context, trace, interpret)
       } else if (typeof registry[symbol] === 'function') {
         // regular sforms have their args evaluated before they are called
         // the equivalent here is the values of all keys are evaluated before the fn is called
@@ -100,7 +100,7 @@ const interpreter = (options = {}) => {
 
         trace(`oform: calling ${symbol}`)
 
-        return registry[symbol].call(undefined, oform, context, interpret, trace)
+        return registry[symbol].call(undefined, oform, context, trace, interpret)
       }
 
       trace(`passing thru object with unrecognized symbol key "${symbol}"`)

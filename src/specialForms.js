@@ -5,7 +5,7 @@ export default {
   // $let defines a scope with one or more local variables
   // define one: ["$let", ["$x", 1], [body uses "$x" ]]
   // define multiple: ["$let", [["$x", 1], ["$y", 2]], [body uses "$x" and "$y"]]
-  $let: (form, context, interpret, trace) => {
+  $let: (form, context, trace, interpret) => {
     trace('in let:', form)
     const letContext = Object.create(context)
     // it's annoying when only defining one var to have to do wrap the var defs:
@@ -23,7 +23,7 @@ export default {
 
   // $var defines a variable in the current scope
   // e.g. ["$var", "$x", 1] or { "$var": [ "$x": 1 ]}
-  $var: (form, context, interpret, trace) => {
+  $var: (form, context, trace, interpret) => {
     const name = Array.isArray(form) ? form[1] : form.$var[0]
     const value = Array.isArray(form) ? form[2] : form.$var[1]
 
@@ -38,7 +38,7 @@ export default {
 
   // $=> = anonymous function
   // ["$=>", [ "$arg1", ..., "$argN"], [ function body ]]
-  '$=>': (declareForm, declareContext, interpret, trace) => {
+  '$=>': (declareForm, declareContext, trace, interpret) => {
     trace('declaring the lambda:', { declareForm, declareContext, interpret })
 
     // return a function called later when the $fn is actually called  
@@ -60,13 +60,13 @@ export default {
 
   // $function = a named function
   // ["$function", "$name", [ "$arg1", ..., "$argN"], [ function body ]]
-  $function: (form, context, interpret) =>
+  $function: (form, context, _trace, interpret) =>
     interpret([ '$var', form[1], [ '$=>', form[2], form[3] ]], context),
 
   // $if is a special form because it only evaluates one of the if/else clauses
   // e.g. ["$if", ["$>", "$x", 0], "some", "none"]
   // or { "$if" : ["$>", "$x", 0], "then": "some", "else": "none"}
-  $if: (form, context, interpret) =>
+  $if: (form, context, _trace, interpret) =>
     interpret(getArg(form, '$if', 1), context) ?
       interpret(getArg(form, 'then', 2), context) :
       interpret(getArg(form, 'else', 3), context),
