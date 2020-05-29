@@ -1,8 +1,12 @@
 /* eslint-disable no-extra-parens */
 
-// note the base operations and special forms are the simple built-in ones
-// the application extends these using interpreter options
-import baseOperations from './operations.js'
+// the registry maps "$symbols" to javascript functions/values.
+// special forms are also functions but "special" in that
+// they don't have their arguments evaluated before they are called 
+// the "base" ones below are the generic built-in ones - the application
+// extends these provided ones via the interpreter "registry" and
+// "specialForms" options
+import baseRegistry from './registry.js'
 import baseSpecials from './specialForms.js'
 
 const interpreter = (options = {}) => {
@@ -26,7 +30,7 @@ const interpreter = (options = {}) => {
 
   trace('specialForms=', specialForms)
 
-  const registry = { ...baseOperations, ...(options.operations || {}) }
+  const registry = { ...baseRegistry, ...(options.registry || {}) }
 
   trace('registry=', registry)
 
