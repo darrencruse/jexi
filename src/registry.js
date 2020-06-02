@@ -1,5 +1,6 @@
 /* eslint-disable implicit-arrow-linebreak */
 import castArray from 'lodash.castarray'
+import set from 'lodash.set'
 
 const formtoargs = (fnsymbol, cb, form) =>
   cb(...Array.isArray(form) ? form.slice(1) : castArray(form[fnsymbol]))
@@ -41,16 +42,33 @@ export default {
 
     // $var defines a variable in the current scope
     // e.g. ["$var", "$x", 1] or { "$var": [ "$x": 1 ]}
-    $var: async (form, variables, trace, { evaluate }) => {
+    // note: "$x" is saved as simply "x" in the variables
+    $var: async (form, variables, trace, { evaluate, symbolToString }) => {
       const name = Array.isArray(form) ? form[1] : form.$var[0]
+      const baseName = symbolToString(name)
       const value = Array.isArray(form) ? form[2] : form.$var[1]
 
-      trace(`setting ${name} to ${value}`)
-      variables[name] = await evaluate(value, variables)
+      trace(`setting ${baseName} to ${value}`)
+      variables[baseName] = await evaluate(value, variables)
 
       // we intentionally evaluate to undefined here
       // because $var defining a function was getting called
       // at the declaration
+      return undefined
+    },
+
+    // $set assigns a value at a specified path in variables
+    // e.g. ["$set", "$x", 1] or { "$set": [ "$x.y": "$y" ]}
+    // note: "$x" is set as simply "x" in the variables
+    $set: async (form, variables, trace, { evaluate, symbolToString }) => {
+      const path = Array.isArray(form) ? form[1] : form.$set[0]
+      const basePath = symbolToString(path)
+      const value = Array.isArray(form) ? form[2] : form.$set[1]
+
+      trace(`setting ${basePath} to ${value}`)
+      set(variables, basePath, await evaluate(value, variables))
+
+      // we intentionally evaluate to undefined here
       return undefined
     },
 
