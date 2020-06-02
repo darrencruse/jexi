@@ -1,6 +1,7 @@
 /* eslint-disable no-extra-parens, no-underscore-dangle */
 import builtins from './registry.js'
 import get from 'lodash.get'
+import repl from 'repl'
 
 const getRegistrySpecialForms = registry => {
   if (!registry || !registry.specialForms) {
@@ -113,6 +114,28 @@ export const interpreter = (options = {}) => {
     return result
   }
 
+  const startRepl = (options = {}) => {
+    // TBD SHOULD I BE USING THEIR PROVIDED CONTEXT OR WIRING IT TO OURS SOMEHOW?
+    const replEval = async (cmd, _context, _filename, callback) => {
+      let form = null
+      let result = null
+
+      try {
+        form = JSON.parse(cmd)
+      } catch (err) {
+        result = 'Invalid JSON please correct.'
+      }
+
+      if (form) {
+        result = await evaluate(form)
+      }
+
+      callback(null, result)
+    }
+
+    repl.start({ prompt: `${options.prompt || '>'} `, eval: replEval })
+  }
+
   // this is the instance of the interpreter we return customized according
   // to the options they pass into the interpreter() creation function
   const theInterpreter = {
@@ -120,6 +143,7 @@ export const interpreter = (options = {}) => {
     globals,
     isSymbol,
     getFnSymbolForForm,
+    repl: startRepl,
     symbolToString,
     stringToSymbol,
   }
