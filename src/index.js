@@ -1,8 +1,12 @@
 /* eslint-disable no-extra-parens, no-underscore-dangle, no-undef-init */
+import RJson from 'really-relaxed-json'
 import builtins from './registry.js'
+import castArray from 'lodash.castarray'
 import get from 'lodash.get'
 import repl from 'repl'
 import util from 'util'
+
+const rjsonParser = RJson.createParser()
 
 const getRegistrySpecialForms = registry => {
   if (!registry || !registry.specialForms) {
@@ -36,10 +40,6 @@ const getRegistryFunctions = registry => {
 // "globals" are plain javacript values added to the global variable scope
 const getRegistryGlobals = registry => registry && registry.globals || {}
 
-// a helper for getting an argument from a form,
-// name is the key to read for the object form, pos is the arg index in the array form 
-const getArg = (form, name, pos) => Array.isArray(form) ? form[pos] : form[name]
-
 export const interpreter = (options = {}) => {
   // options.trace = true
 
@@ -63,29 +63,25 @@ export const interpreter = (options = {}) => {
   const symRegex = new RegExp('^\\$[^$0-9][^(){}]*$')
   const isSymbol = atom => typeof atom === 'string' && symRegex.test(atom)
 
-  // converting symbol to string just removes the $ prefix
+  // converting symbol to string just removes the $ prefix (if it has one)
   const symbolToString = symbolStr => isSymbol(symbolStr) ? symbolStr.substring(1) : String(symbolStr)
 
   // converting string to symbol just adds the $ prefix
   const stringToSymbol = str => !isSymbol(str) ? `$${str.trim()}` : str
 
-  // return the "$function" symbol specified in the provided array ("sform")
-  // or object ("oform") form.  Otherwise null if there isn't one
+  // return the "$function" symbol specified in the provided object form call { $function: [ args ] }.
+  // Otherwise null if there isn't one
   const getFnSymbolForForm = form => {
     let fnSymbol = null
 
-    if (Array.isArray(form)) {
-      fnSymbol = form.length > 0 && isSymbol(form[0]) && form[0]
-    } else {
-      const keys = Object.keys(form) || []
-      const symbols = keys.filter(isSymbol)
+    const keys = Object.keys(form) || []
+    const symbols = keys.filter(isSymbol)
 
-      if (symbols.length > 0) {
-        fnSymbol = symbols[0]
+    if (symbols.length > 0) {
+      fnSymbol = symbols[0]
 
-        if (symbols.length > 1) {
-          console.warn(`Warning: ambiguous object form with multiple "$function" keys (using ${fnSymbol}):`)
-        }
+      if (symbols.length > 1) {
+        console.warn(`Warning: ambiguous object form with multiple "$function" keys (using ${fnSymbol}):`)
       }
     }
 
@@ -115,6 +111,10 @@ export const interpreter = (options = {}) => {
     //trace('evaluate: evaluating with vars of:', JSON.stringify(variables, null, 2))
     let result = form
 
+// DO I/DON'T I STILL NEED TO EVALUATE ELEMENTS OF ARRAYS?
+// evaluateArrayForm USED TO DO THAT MAYBE I SHOULD HAVE KEPT THAT PART
+// (EVEN IF THE LISPY STYLE HANDLING OF [$fn, arg1, ..., argN ]) went away?
+// SO FAR IN TESTING I'M NOT SURE BUT MAYBE IT'S OK WITHOUT?  ALSO I HAVE { $do: [...] } FOR OP SEQUENCES
     if (typeof form === 'object') {
       // eslint-disable-next-line no-use-before-define
       result = await evaluateObjectForm(form, variables, options)
@@ -134,7 +134,7 @@ export const interpreter = (options = {}) => {
     return result
   }
 
-  const startRepl = (options = {}) => {
+  const startRepl = (options = { relaxed: true }) => {
     // TBD SHOULD I BE USING THEIR PROVIDED CONTEXT OR WIRING IT TO OURS SOMEHOW?
     const replEval = async (cmd, _context, _filename, callback) => {
       let form = undefined
@@ -142,9 +142,11 @@ export const interpreter = (options = {}) => {
 
       if (cmd && cmd.trim()) {
         try {
-          form = JSON.parse(cmd.trim())
+          const inputStr = options.relaxed ? rjsonParser.stringToJson(cmd.trim()) : cmd.trim()
+
+          form = JSON.parse(inputStr)
         } catch (err) {
-          result = 'Invalid JSON please correct.'
+          result = `Invalid JSON please correct: ${err}`
         }
 
         if (form) {
@@ -172,47 +174,52 @@ export const interpreter = (options = {}) => {
   // to the options they pass into the interpreter() creation function
   const theInterpreter = {
     evaluate,
-    getArg,
     globals,
     isSymbol,
     getFnSymbolForForm,
     repl: startRepl,
     symbolToString,
     stringToSymbol,
+    trace,
   }
 
-  // the object form is using json object keys like named arguments
+  // an object form is { $fnSymbol: [ arg1 ... argN ] }
+  // or (for convenience) { $fnSymbol: arg } when there is only one argument
   // eslint-disable-next-line no-unused-vars
   const evaluateObjectForm = async (oform, variables, options = {}) => {
-    // special forms are called with their args unevaluated:
-    const keys = Object.keys(oform) || []
     const $fnSymbol = getFnSymbolForForm(oform)
 
     if ($fnSymbol) {
       // evaluate the symbol to a function
       // note this resolves e.g. "$console.log" which a simple variables[fname] wouldn't find
-      const func = await evaluate($fnSymbol, variables)
+      const func = await evaluate($fnSymbol, variables, options)
 
       if (func && func._special) {
-        return func(oform, variables, trace, theInterpreter)
+        // special forms are called with their args unevaluated:
+        return func(oform[$fnSymbol], variables, theInterpreter)
       } else if (typeof func === 'function') {
-        // regular sforms have their args evaluated before they are called
+        // regular forms have their args evaluated before they are called
         // the equivalent here is the values of all keys are evaluated before the fn is called
         // note: we also wait here for promises (if any) to settle before making the call
-        await mapAndWait(keys, async key => {
-          const evaluated = await evaluate(oform[key], variables)
-
-          oform[key] = evaluated
-        })
+        const args = oform[$fnSymbol]
+        const argsArr = args ? castArray(args) : []
+        // WHAT WAS MY RATIONALE FOR ARG EVALS NOT RUNNING CONCURRENTLY??? 
+        const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, variables, options))
 
         trace(`evaluateObjectForm: calling ${$fnSymbol}`)
 
         const result = func._formhandler ?
-          // form handler functions take the evaluated object form data
-          func(oform, variables, trace, theInterpreter) :
-          // non-form handlers are plain javascript functions (e.g. console.log)
-          // the arguments are the array value of the symbol e.g. {"$console.log": ["hello"]}
-          func(...oform[$fnSymbol])
+// DOESNT A VARARGS FUNCTION CREATE ISSUES FOR THE variables/theInterpreter ARGS BELOW?
+// THAT WOULD BE AN ARGUMENT FOR NOT SPREADING evaluatedArgs BELOW BUT RATHER HAVING THE
+// HANDLER FUNCTIONS JUST RECEIEVE THE ARRAY OF EVALUATED ARGS AS THE FIRST ARG
+// IT SEEMED LIKE REALLY THAT'S WHAT I WAS THINKING BELOW WITH THE "_formhandler" FLAG
+// THAT A PLAIN JAVASCRIPT FUNCTION WOULD NOT BE MARKED "_formhandler"
+          // handlers get the variables "context" and jexi interpreter along with the args:
+          func(...evaluatedArgs, variables, theInterpreter) :
+          // non-form handlers are plain javascript functions and get only the args
+          // note e.g. $console.log would print the variables and interpreter 
+          // if called as a handler like the above
+          func(...evaluatedArgs)
 
         trace(`evaluateObjectForm: returning from calling ${$fnSymbol}`, result)
 
@@ -224,9 +231,17 @@ export const interpreter = (options = {}) => {
       trace(`evaluateObjectForm: passing thru object with unrecognized symbol key "${$fnSymbol}":`, JSON.stringify(oform, null, 2))
     }
 
-    trace('evaluateObjectForm: evaluting key values of plain object as a template')
+    // IS THIS DEFINITELY WHAT I SHOULD DO HERE?
+    // CANT I ASSUME AN OBJECT WITHOUT A { $fn: [] } FORM IS JUST JSON ALL THE WAY DOWN?
+    // IF NOT THEN EVALUATING ALL THE ELEMENTS IN AN ARRAY SEEMS TO PARALLEL THIS BUT I DELETED THAT!!??
+    // AREN'T THESE TWO THINGS BAD FOR PERFORMANCE THOUGH?
+    // WHAT IF ITS A LIVE ASSEMBLER RUN WITH MEGABYTES OF PAYLOAD JSON AND I'M RUNNING OVER THE WHOLE ARRAYS?
+    // IF I'M MODELING LISPY STYLE LANGUAGE WHY ISN'T THERE LIKE { $quote: [ json ] } TO STOP THE RECURSION?
+    trace('evaluateObjectForm: evaluating key values of plain object as a template')
 
     // note: we also wait here for promises (if any) to settle
+    const keys = Object.keys(oform) || []
+
     await mapAndWait(keys, async key => {
       const evaluated = await evaluate(oform[key], variables)
 
