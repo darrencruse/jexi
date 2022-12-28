@@ -8,49 +8,35 @@ import util from 'util'
 
 const rjsonParser = RJson.createParser()
 
-const getRegistrySpecialForms = registry => {
-  if (!registry || !registry.specialForms) {
-    return {}
+const getRegistryTable = (registry, tableKey, typeFlag = '') => {
+  const lookupTable = registry?.[tableKey] || {}
+
+  if (typeFlag) {
+    Object.keys(lookupTable).forEach(key => {
+      lookupTable[key][typeFlag] = true
+    })
   }
 
-  // the "specialForms" are marked _special so we know not to eval their arguments
-  Object.keys(registry.specialForms).forEach(key => {
-    registry.specialForms[key]._special = true
-  })
-
-  return registry.specialForms
+  return lookupTable
 }
-
-const getRegistryFunctions = registry => {
-  if (!registry || !registry.functions) {
-    return {}
-  }
-
-  // the "functions" are marked _formhandler since they receive and
-  // handle the array and object form data directly.  this distinguishes
-  // them from plain javascript functions (e.g. console.log) which can't
-  // take the form data as arguments 
-  Object.keys(registry.functions).forEach(key => {
-    registry.functions[key]._formhandler = true
-  })
-
-  return registry.functions
-}
-
-// "globals" are plain javacript values added to the global variable scope
-const getRegistryGlobals = registry => registry && registry.globals || {}
 
 export const interpreter = (options = {}) => {
   // options.trace = true
 
   const globals = {
     trace: options.trace,
-    ...getRegistrySpecialForms(builtins),
-    ...getRegistrySpecialForms(options.registry),
-    ...getRegistryFunctions(builtins),
-    ...getRegistryFunctions(options.registry),
-    ...getRegistryGlobals(builtins),
-    ...getRegistryGlobals(options.registry),
+    // "specialForms" are marked _special so we know not to eval their arguments:
+    ...getRegistryTable(builtins, 'specialForms', '_special'),
+    // "handlers" are marked _handler so we know to pass them variables and jexi.evaluate:
+    ...getRegistryTable(builtins, 'handlers', '_handler'),
+    ...getRegistryTable(builtins, 'functions'),
+    ...getRegistryTable(builtins, 'globals'),
+
+    // note options.registry can override builtins of the same name if they choose
+    ...getRegistryTable(options.registry, 'specialForms', '_special'),
+    ...getRegistryTable(options.registry, 'handlers', '_handler'),
+    ...getRegistryTable(options.registry, 'functions'),
+    ...getRegistryTable(options.registry, 'globals'),
   }
 
   // eslint-disable-next-line no-console
@@ -194,7 +180,7 @@ export const interpreter = (options = {}) => {
       // note this resolves e.g. "$console.log" which a simple variables[fname] wouldn't find
       const func = await evaluate($fnSymbol, variables, options)
 
-      if (func && func._special) {
+      if (func?._special) {
         // special forms are called with their args unevaluated:
         return func(oform[$fnSymbol], variables, theInterpreter)
       } else if (typeof func === 'function') {
@@ -208,17 +194,10 @@ export const interpreter = (options = {}) => {
 
         trace(`evaluateObjectForm: calling ${$fnSymbol}`)
 
-        const result = func._formhandler ?
-// DOESNT A VARARGS FUNCTION CREATE ISSUES FOR THE variables/theInterpreter ARGS BELOW?
-// THAT WOULD BE AN ARGUMENT FOR NOT SPREADING evaluatedArgs BELOW BUT RATHER HAVING THE
-// HANDLER FUNCTIONS JUST RECEIEVE THE ARRAY OF EVALUATED ARGS AS THE FIRST ARG
-// IT SEEMED LIKE REALLY THAT'S WHAT I WAS THINKING BELOW WITH THE "_formhandler" FLAG
-// THAT A PLAIN JAVASCRIPT FUNCTION WOULD NOT BE MARKED "_formhandler"
-          // handlers get the variables "context" and jexi interpreter along with the args:
-          func(...evaluatedArgs, variables, theInterpreter) :
-          // non-form handlers are plain javascript functions and get only the args
-          // note e.g. $console.log would print the variables and interpreter 
-          // if called as a handler like the above
+        const result = func._handler ?
+          // handlers get the evaluated args, variables "context" and jexi interpreter:
+          func(evaluatedArgs, variables, theInterpreter) :
+          // plain (non "handler") functions get the evaluated args spread as their args
           func(...evaluatedArgs)
 
         trace(`evaluateObjectForm: returning from calling ${$fnSymbol}`, result)
