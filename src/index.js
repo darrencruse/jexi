@@ -115,10 +115,7 @@ export const interpreter = (options = {}) => {
     //trace('evaluate: evaluating with vars of:', JSON.stringify(variables, null, 2))
     let result = form
 
-    if (Array.isArray(form)) {
-      // eslint-disable-next-line no-use-before-define
-      result = await evaluateArrayForm(form, variables, options)
-    } else if (typeof form === 'object') {
+    if (typeof form === 'object') {
       // eslint-disable-next-line no-use-before-define
       result = await evaluateObjectForm(form, variables, options)
     } else if (isSymbol(form)) {
@@ -182,54 +179,6 @@ export const interpreter = (options = {}) => {
     repl: startRepl,
     symbolToString,
     stringToSymbol,
-  }
-
-  // the array form is really the classic lispy s-expression form
-  const evaluateArrayForm = async (sform, variables, options = {}) => {
-    const $fnSymbol = getFnSymbolForForm(sform)
-
-    // special forms are called with their args unevaluated:
-    if ($fnSymbol) {
-      const fname = symbolToString($fnSymbol)
-
-      if (variables[fname] && variables[fname]._special) {
-        return variables[fname](sform, variables, trace, theInterpreter)
-      }
-    }
-
-    // regular forms have their args evaluated before they are called
-    // note: we also wait here for promises (if any) to settle before making the call
-    let evaluated = []
-
-    if (options.parallel) {
-      const promises = sform.map(atom => evaluate(atom, variables))
-
-      evaluated = await Promise.all(promises)
-    } else {
-      // normally we wait for each step to complete
-      // (later functions might depend on the output of earlier ones)
-      evaluated = await mapAndWait(sform, atom => evaluate(atom, variables))
-    }
-
-    trace('evaluateArrayForm: evaluated before call:', JSON.stringify(evaluated, null, 2), evaluated[0], typeof evaluated[0])
-    if (typeof evaluated[0] === 'function') {
-      trace(`evaluateArrayForm: calling ${$fnSymbol}`)
-
-      return evaluated[0]._formhandler ?
-        // form handler functions take the evaluated array form data
-        evaluated[0](evaluated, variables, trace, theInterpreter) :
-        // non-form handlers are plain javascript functions (e.g. console.log)
-        // the arguments follow the symbol e.g. ["$console.log", "hello"]
-        evaluated[0].apply(undefined, evaluated.slice(1))
-    }
-
-    trace(`evaluateArrayForm: ${$fnSymbol} not a function passing thru as evaluated data`)
-    if ($fnSymbol && typeof evaluated[0] === 'undefined') {
-      // this was an unrecognized symbol pass it thru unchanged
-      evaluated[0] = $fnSymbol
-    }
-
-    return evaluated
   }
 
   // the object form is using json object keys like named arguments
