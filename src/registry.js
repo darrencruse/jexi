@@ -28,7 +28,7 @@ export default {
     '<=': (lhs, rhs) => lhs <= rhs,
 
     // $for array element
-    // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': [[ '$elem' ], { '$console.log': '$elem' }]}}}
+    // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': { args: [ '$elem' ], do: { '$console.log': '$elem' }}}}}
     'for': ({ in: array, do: fn }) => {
       // SHOULDNT THIS BE DOING FOR AWAIT? 
       array.forEach(fn)
@@ -147,16 +147,22 @@ export default {
 
         // put the values passed for the arguments into a local scope
         // note: if called from javascript using the global vars is better than no vars at all
-// IN WHAT CONTEXT WAS I CALLING LAMBDAS FROM JAVASCRIPT AND NOT FROM THE INTERPRETER?
-// MAYBE I DID THIS FROM ASSEMBLER?
+        //   (e.g. $for does a simple array.forEach which calls this lamdba function directly)
         const localContext = Object.create(jexi?.evaluate ? variables : globals)
 
-        argNames.forEach((argsymbol, i) => {
-          const argname = symbolToString(argsymbol)
+        if (Array.isArray(invokedArgs)) {
+          argNames.forEach((argsymbol, i) => {
+            const argname = symbolToString(argsymbol)
 
-          trace('setting arg in local scope:', argname, invokedArgs[i])
-          localContext[argname] = invokedArgs[i]
-        })
+            trace('setting arg in local scope:', argname, invokedArgs[i])
+            localContext[argname] = invokedArgs[i]
+          })
+        } else {
+          const argname = symbolToString(argNames[0] || argNames)
+
+          trace('setting arg in local scope:', argname, invokedArgs)
+          localContext[argname] = invokedArgs
+        }
 
         // evaluate the body of the function with it's args in scope:
         trace('evaluating body of lambda:', body)
