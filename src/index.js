@@ -137,7 +137,7 @@ export const interpreter = (options = {}) => {
 
         if (form) {
           result = await evaluate(form)
-          if (Array.isArray(result) && result.length > 0 && result[0].then) {
+          if (Array.isArray(result) && result.length > 0 && result[0]?.then) {
             result = await Promise.all(result)
           }
         }
