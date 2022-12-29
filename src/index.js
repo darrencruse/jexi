@@ -121,17 +121,36 @@ export const interpreter = (options = {}) => {
   }
 
   const startRepl = (options = { relaxed: true }) => {
+    const isRecoverableError = error => {
+      if (error.name === 'ParseException') {
+        return /^Expected/.test(error.message)
+      }
+
+      return false
+    }
+
+    let lastCommand = '?'
+
     // TBD SHOULD I BE USING THEIR PROVIDED CONTEXT OR WIRING IT TO OURS SOMEHOW?
     const replEval = async (cmd, _context, _filename, callback) => {
       let form = undefined
       let result = undefined
 
-      if (cmd && cmd.trim()) {
+      const trimmedCmd = cmd?.trim()
+
+      if (trimmedCmd) {
         try {
-          const inputStr = options.relaxed ? rjsonParser.stringToJson(cmd.trim()) : cmd.trim()
+          const inputStr = options.relaxed ? rjsonParser.stringToJson(trimmedCmd) : trimmedCmd
 
           form = JSON.parse(inputStr)
         } catch (err) {
+          // if they enter nothing and hit return we exit multiline mode and show the error   
+          if (lastCommand !== trimmedCmd && isRecoverableError(err)) {
+            lastCommand = trimmedCmd
+
+            return callback(new repl.Recoverable(err))
+          }
+
           result = `Invalid JSON please correct: ${err}`
         }
 
@@ -142,6 +161,8 @@ export const interpreter = (options = {}) => {
           }
         }
       }
+
+      lastCommand = trimmedCmd
 
       callback(null, result)
     }
