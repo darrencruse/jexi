@@ -27,16 +27,16 @@ export default {
     '<': (lhs, rhs) => lhs < rhs,
     '<=': (lhs, rhs) => lhs <= rhs,
 
-    // $for array element
+    // $for/in/do = for each array element do a lamdba
     // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': { args: [ '$elem' ], do: { '$console.log': '$elem' }}}}}
     'for': ({ in: array, do: fn }) => {
       // SHOULDNT THIS BE DOING FOR AWAIT? 
       array.forEach(fn)
     },
 
-    // $map array data using a function
-    // or { $map: { in: [ 0, 1, 2 ], do: { '$=>': [[ '$elem' ], { '$*': [ '$elem', 2 ]}]}}}
-    'map': async ({ in: array, do: fn }) => {
+    // $map/in/by = map array data using a function
+    // e.g. { $map: { in: [ 0, 1, 2 ], by: { '$=>': { args: [ '$elem' ], do: { '$*': [ '$elem', 2 ]}}}}}
+    'map': async ({ in: array, by: fn }) => {
       const mapPromises = array.map(fn)
 
       // await promises for the results (if promises came back)
@@ -46,25 +46,25 @@ export default {
       return resolved
     },
 
-    // note variables and the jexi interpreter are always passed hence length > 2
-    'do': (...evaledForms) => evaledForms.length > 2 ? evaledForms[evaledForms.length - 3] : evaledForms,
+    // $do = do a sequence of operations in an array and return the value of the last one
+    'do': (...evaledForms) => evaledForms.length > 0 ? evaledForms[evaledForms.length - 1] : evaledForms,
   },
 
   // built-in "handlers" provided by the interpreter
   // in jexi "handlers" differ from "functions" (see above) in how they are called
   // for "functions" { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
-  // for "handlers" { $fn: args } means to call $fn(args, variables, jexi) so that:
-  // a.  no argument spreading occurs (e.g. if the value of $fn is an array then "args" above is an array)
+  // for "handlers" { $fn: [ arg1, ..., argN ] } means to call $fn([ arg1, ..., argN ], variables, jexi) so that:
+  // a.  no argument spreading occurs (e.g. the first argument to $fn is always just an array of the args)
   // b.  access is provided to the variables context thru the variables argument
   // c.  the interpreter can be re-entered using jexi.evaluate when necessary
   // d.  tracing can be done using jexi.trace
   // etc.
   // note: unlike special forms handlers have their arguments evaluated *before* they are called
   handlers: {
-    // filter array data using a predicate
-    // e.g. { $filter: { in: [ -1, 0, 1 ], where: { '$=>': [[ '$elem' ], { '$>': [ '$elem', 0 ]}]}}}
-    'filter': async ({ in: array, where: fn }, variables, { evaluate }) => {
-      const inOrOut = await evaluate({ $map: { in: array, do: fn }}, variables)
+    // $filter/in/where = filter array data using a predicate
+    // e.g. { $filter: { in: [ -1, 0, 1 ], where: { '$=>': { args: [ '$elem' ], do: { '$>': [ '$elem', 0 ]}}}}}
+    'filter': async ([{ in: array, where: fn }], variables, { evaluate }) => {
+      const inOrOut = await evaluate({ $map: { in: array, by: fn }}, variables)
 
       return array.filter((_elem, i) => inOrOut[i])
     },
@@ -74,18 +74,15 @@ export default {
   // they don't have their arguments evaluated before they are called
   // most special forms define control structures or perform variable bindings
   specialForms: {
-    // $let defines a scope with one or more local variables
-    // define one: { $let: { vars: ['$x', 1] in: [body uses $x ] }}
-    // define multiple: { $let: { vars: [['$x', 1], ['$y', 2]], in: [body uses $x and $y] }}
+    // $let/var/in = defines a scope with one or more local variables
+    // example: { $let: { var: {'$x': 1, '$y': 2}, in: [body uses $x and $y] }}
     'let': async (varsInObj, variables, { evaluate, symbolToString, trace }) => {
       trace('in let:', varsInObj)
 
-      const { vars, in: body } = varsInObj
+      const { var: declarationsObj, in: body } = varsInObj
       const letScope = Object.create(variables)
-      // it's annoying when only defining one var to have to wrap the var defs in a double array:
-      const varDefs = vars.length > 0 && Array.isArray(vars[0]) ? vars : [ vars ]
 
-      for (const [ symbol, value ] of varDefs) {
+      for await (const [ symbol, value ] of Object.entries(declarationsObj)) {
         try {
           const name = symbolToString(symbol)
 
@@ -134,7 +131,7 @@ export default {
       return undefined
     },
 
-    // $=> = lamdba/anonymous function
+    // $=>/args/do = lamdba/anonymous function
     // { $=>: { args: [ $arg1, ..., $argN], do: [ function body ] } }
     '=>': (argsDoObj, declareContext, { evaluate, globals, symbolToString, trace }) => {
       trace('declaring the lambda:', argsDoObj)
@@ -150,14 +147,14 @@ export default {
         //   (e.g. $for does a simple array.forEach which calls this lamdba function directly)
         const localContext = Object.create(jexi?.evaluate ? variables : globals)
 
-        if (Array.isArray(invokedArgs)) {
+        if (Array.isArray(invokedArgs) && argNames) {
           argNames.forEach((argsymbol, i) => {
             const argname = symbolToString(argsymbol)
 
             trace('setting arg in local scope:', argname, invokedArgs[i])
             localContext[argname] = invokedArgs[i]
           })
-        } else {
+        } else if (argNames) {
           const argname = symbolToString(argNames[0] || argNames)
 
           trace('setting arg in local scope:', argname, invokedArgs)
@@ -178,13 +175,13 @@ export default {
       return lambda
     },
 
-    // $function = a named function
+    // $function/name/args/do = a named function
     // { $function: { name: fnname, args: [ '$arg1', ..., '$argN'], do: [ function body ] }}
     // e.g. { $function: { name: '$print', args: [ '$msg' ], do: { $console.log: $msg }}}
     'function': ({ name, args, do: body }, variables, { evaluate }) =>
       evaluate({ $var: { [name]: { '$=>': { args, do: body }}}}, variables),
 
-    // $if is a special form because it only evaluates one of the if/else clauses
+    // $if/cond/then/else is a special form because it only evaluates one of the if/else clauses
     // or { $if: { cond: { '$>': [ '$x', 0 ] }, then: 'some', else: 'none' } }
     'if': async ({ cond, then, else: otherwise }, variables, { evaluate }) =>
       await evaluate(cond, variables) ?
@@ -198,7 +195,7 @@ export default {
     'variables': (_args, variables) => console.log(variables),
 
     // this is really just a start at a way to exit evaluating early
-    // atm I've only honored this one place (I was thinking/hoping evaluate can check this)
+    // (I was thinking/hoping evaluate can check this but it doesn't yet)
     'exit': (_args, _variables, trace, { globals }) => {
       trace('Setting global _exit flag to abort the evaluation')
 
