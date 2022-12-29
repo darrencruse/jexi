@@ -1,12 +1,7 @@
 /* eslint-disable no-extra-parens, no-underscore-dangle, no-undef-init */
-import RJson from 'really-relaxed-json'
 import builtins from './registry.js'
 import castArray from 'lodash.castarray'
 import get from 'lodash.get'
-import repl from 'repl'
-import util from 'util'
-
-const rjsonParser = RJson.createParser()
 
 const getRegistryTable = (registry, tableKey, typeFlag = '') => {
   const lookupTable = registry?.[tableKey] || {}
@@ -120,63 +115,6 @@ export const interpreter = (options = {}) => {
     return result
   }
 
-  const startRepl = (options = { relaxed: true }) => {
-    const isRecoverableError = error => {
-      if (error.name === 'ParseException') {
-        return /^Expected/.test(error.message)
-      }
-
-      return false
-    }
-
-    let lastCommand = '?'
-
-    // TBD SHOULD I BE USING THEIR PROVIDED CONTEXT OR WIRING IT TO OURS SOMEHOW?
-    const replEval = async (cmd, _context, _filename, callback) => {
-      let form = undefined
-      let result = undefined
-
-      const trimmedCmd = cmd?.trim()
-
-      if (trimmedCmd) {
-        try {
-          const inputStr = options.relaxed ? rjsonParser.stringToJson(trimmedCmd) : trimmedCmd
-
-          form = JSON.parse(inputStr)
-        } catch (err) {
-          // if they enter nothing and hit return we exit multiline mode and show the error   
-          if (lastCommand !== trimmedCmd && isRecoverableError(err)) {
-            lastCommand = trimmedCmd
-
-            return callback(new repl.Recoverable(err))
-          }
-
-          result = `Invalid JSON please correct: ${err}`
-        }
-
-        if (form) {
-          result = await evaluate(form)
-          if (Array.isArray(result) && result.length > 0 && result[0]?.then) {
-            result = await Promise.all(result)
-          }
-        }
-      }
-
-      lastCommand = trimmedCmd
-
-      callback(null, result)
-    }
-
-    // fix the repl default showing [Object]/[Array] with JSON > 2 levels deep:
-    const writeFullDepth = output => util.inspect(output, { depth: 100, colors: true })
-
-    repl.start({
-      eval: replEval,
-      prompt: `${options.prompt || '>'} `,
-      writer: writeFullDepth,
-    })
-  }
-
   // this is the instance of the interpreter we return customized according
   // to the options they pass into the interpreter() creation function
   const theInterpreter = {
@@ -184,7 +122,6 @@ export const interpreter = (options = {}) => {
     globals,
     isSymbol,
     getFnSymbolForForm,
-    repl: startRepl,
     symbolToString,
     stringToSymbol,
     trace,
