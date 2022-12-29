@@ -29,9 +29,10 @@ export default {
 
     // $for/in/do = for each array element do a lamdba
     // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': { args: [ '$elem' ], do: { '$console.log': '$elem' }}}}}
-    'for': ({ in: array, do: fn }) => {
-      // SHOULDNT THIS BE DOING FOR AWAIT? 
-      array.forEach(fn)
+    'for': async ({ in: array, do: fn }) => {
+      for await (const elem of array) {
+        fn(elem)
+      }
     },
 
     // $map/in/by = map array data using a function
