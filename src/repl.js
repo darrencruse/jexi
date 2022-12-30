@@ -6,7 +6,7 @@ import util from 'util'
 
 const rjsonParser = RJson.createParser()
 
-const startRepl = (jexi, options = { relaxed: true }) => {
+const startRepl = (jexi, replopts = { relaxed: true }) => {
   const isRecoverableError = error => {
     if (error.name === 'ParseException') {
       return /^Expected/.test(error.message)
@@ -17,16 +17,15 @@ const startRepl = (jexi, options = { relaxed: true }) => {
 
   let lastCommand = '?'
 
-  // TBD SHOULD I BE USING THEIR PROVIDED CONTEXT OR WIRING IT TO OURS SOMEHOW?
   const replEval = async (cmd, _context, _filename, callback) => {
     let form = undefined
-    let result = undefined
+    let results = undefined
 
     const trimmedCmd = cmd?.trim()
 
     if (trimmedCmd) {
       try {
-        const inputStr = options.relaxed ? rjsonParser.stringToJson(trimmedCmd) : trimmedCmd
+        const inputStr = replopts.relaxed ? rjsonParser.stringToJson(trimmedCmd) : trimmedCmd
 
         form = JSON.parse(inputStr)
       } catch (err) {
@@ -37,20 +36,21 @@ const startRepl = (jexi, options = { relaxed: true }) => {
           return callback(new repl.Recoverable(err))
         }
 
-        result = `Invalid JSON please correct: ${err}`
+        results = `Invalid JSON please correct: ${err}`
       }
 
       if (form) {
-        result = await jexi.evaluate(form)
-        if (Array.isArray(result) && result.length > 0 && result[0]?.then) {
-          result = await Promise.all(result)
+        results = await jexi.evaluate(form)
+        if (Array.isArray(results) && results.length > 0 &&
+          results.some(result => typeof result?.then === 'function')) {
+          results = await Promise.all(results)
         }
       }
     }
 
     lastCommand = trimmedCmd
 
-    callback(null, result)
+    callback(null, results)
   }
 
   // fix the repl default showing [Object]/[Array] with JSON > 2 levels deep:
@@ -58,14 +58,14 @@ const startRepl = (jexi, options = { relaxed: true }) => {
 
   repl.start({
     eval: replEval,
-    prompt: `${options.prompt || '>'} `,
+    prompt: `${replopts.prompt || '>'} `,
     writer: writeFullDepth,
   })
 }
 
 // eslint-disable-next-line no-console
-console.log('Starting Assembler REPL...')
+console.log('Starting Jexi REPL...')
 
-const jexi = interpreter({ lodash: true, trace: false })
+const jexi = interpreter({ trace: false })
 
 startRepl(jexi, { prompt: 'jexi>', relaxed: true })

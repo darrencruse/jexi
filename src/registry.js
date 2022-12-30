@@ -2,7 +2,8 @@
 import set from 'lodash.set'
 
 // the registry maps the built-in "$symbols" to javascript functions/values.
-// the application adds to these using the interpreter "registry" option
+// the application adds to by passing similar to the below as "extensions"
+// to the interpreter() create function
 export default {
   // built-in "$functions" provided by the interpreter
   // where { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
@@ -46,9 +47,9 @@ export default {
   // built-in "handlers" provided by the interpreter
   // in jexi "handlers" differ from "functions" (see above) in how they are called
   // for "functions" { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
-  // for "handlers" { $fn: [ arg1, ..., argN ] } means to call $fn([ arg1, ..., argN ], variables, jexi) so that:
+  // for "handlers" { $fn: [ arg1, ..., argN ] } means to call $fn([ arg1, ..., argN ], env, jexi) so that:
   // a.  no argument spreading occurs (e.g. the first argument to $fn is always just an array of the args)
-  // b.  access is provided to the variables context thru the variables argument
+  // b.  access is provided to the variables context thru the env argument
   // c.  the interpreter can be re-entered using jexi.evaluate when necessary
   // d.  tracing can be done using jexi.trace
   // etc.
@@ -56,18 +57,16 @@ export default {
   handlers: {
     // $for/in/do = for each array element do a lamdba
     // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': { args: [ '$elem' ], do: { '$console.log': '$elem' }}}}}
-    'for': async ([{ in: array, do: fn }], variables, jexi) => {
+    'for': async ([{ in: array, do: fn }], env, jexi) => {
       for await (const elem of array) {
-        fn([ elem ], variables, jexi)
+        fn([ elem ], env, jexi)
       }
     },
 
-    // foreach city cities [print city]
-
     // $filter/in/where = filter array data using a predicate
     // e.g. { $filter: { in: [ -1, 0, 1 ], where: { '$=>': { args: [ '$elem' ], do: { '$>': [ '$elem', 0 ]}}}}}
-    'filter': async ([{ in: array, where: fn }], variables, { evaluate }) => {
-      const inOrOut = await evaluate({ $map: { in: array, by: fn }}, variables)
+    'filter': async ([{ in: array, where: fn }], env, { evaluate }) => {
+      const inOrOut = await evaluate({ $map: { in: array, by: fn }}, env)
 
       return array.filter((_elem, i) => inOrOut[i])
     },
@@ -79,24 +78,24 @@ export default {
   specialForms: {
     // $new = constructs an instance using javascript "new"
     // example: { $new: { $Date: [ 'December 17, 1995 03:24:00' ] } }
-    'new': async (classAndArgs, variables, { evaluate, trace }) => {
+    'new': async (classAndArgs, env, { evaluate, trace }) => {
       trace('in new:', classAndArgs)
 
       const [ classSymbol, constructorArgs ] = Object.entries(classAndArgs)[0]
 
       // lookup the actual javscript class using $class
-      const theClass = await evaluate(classSymbol, variables)
+      const theClass = await evaluate(classSymbol, env)
 
       return new theClass(...constructorArgs)
     },
 
     // $let/var/in = defines a scope with one or more local variables
     // example: { $let: { var: {'$x': 1, '$y': 2}, in: [body uses $x and $y] }}
-    'let': async (varsInObj, variables, { evaluate, symbolToString, trace }) => {
+    'let': async (varsInObj, env, { evaluate, symbolToString, trace }) => {
       trace('in let:', varsInObj)
 
       const { var: declarationsObj, in: body } = varsInObj
-      const letScope = Object.create(variables)
+      const letScope = Object.create(env)
 
       for await (const [ symbol, value ] of Object.entries(declarationsObj)) {
         try {
@@ -104,7 +103,7 @@ export default {
 
           trace('setting', name, 'to:', value)
           // eslint-disable-next-line no-await-in-loop
-          letScope[name] = await evaluate(value, variables)
+          letScope[name] = await evaluate(value, env)
           trace('read back:', letScope[name])
         } catch (err) {
           // TBD better error handling
@@ -117,13 +116,13 @@ export default {
 
     // $var defines a variable in the current scope
     // e.g. { $var: { $x: 1, $y: 2 } }
-    // note: "$x" is saved as simply "x" in the variables
-    'var': async (declarationsObj, variables, { evaluate, symbolToString, trace }) => {
+    // note: "$x" is saved as simply "x" in the environment
+    'var': async (declarationsObj, env, { evaluate, symbolToString, trace }) => {
       for await (const [ symbol, value ] of Object.entries(declarationsObj)) {
         const name = symbolToString(symbol)
 
         trace(`setting ${name} to ${value}`)
-        variables[name] = await evaluate(value, variables)
+        env[name] = await evaluate(value, env)
       }
 
       // we intentionally evaluate to undefined here
@@ -132,15 +131,15 @@ export default {
       return undefined
     },
 
-    // $set assigns a value at a specified path in variables
+    // $set assigns a value at a specified path in the environment
     // e.g. { $set: { $x: { y: 1 }, $x.z: 2 } }
-    // note: "$x" is stored as simply "x" in the variables
-    'set': async (declarationsObj, variables, { evaluate, symbolToString, trace }) => {
+    // note: "$x" is stored as simply "x" in the environment
+    'set': async (declarationsObj, env, { evaluate, symbolToString, trace }) => {
       for await (const [ symbol, value ] of Object.entries(declarationsObj)) {
         const path = symbolToString(symbol)
 
         trace(`setting ${path} to ${value}`)
-        set(variables, path, await evaluate(value, variables))
+        set(env, path, await evaluate(value, env))
       }
 
       // we intentionally evaluate to undefined here
@@ -155,13 +154,13 @@ export default {
       const { args: argNames, do: body } = argsDoObj
 
       // return a function called later when the $fn is actually called  
-      const lambda = async (invokedArgs, variables, jexi) => {
+      const lambda = async (invokedArgs, env, jexi) => {
         trace('handling lambda called with:', invokedArgs)
 
         // put the values passed for the arguments into a local scope
         // note: if called from javascript using the global vars is better than no vars at all
         //   (e.g. $for does a simple array.forEach which calls this lamdba function directly)
-        const localContext = Object.create(jexi?.evaluate ? variables : globals)
+        const localContext = Object.create(jexi?.evaluate ? env : globals)
 
         if (Array.isArray(invokedArgs) && argNames) {
           argNames.forEach((argsymbol, i) => {
@@ -191,24 +190,13 @@ export default {
       return lambda
     },
 
-    // $function/name/args/do = a named function
-    // { $function: { name: fnname, args: [ '$arg1', ..., '$argN'], do: [ function body ] }}
-    // e.g. { $function: { name: '$print', args: [ '$msg' ], do: { $console.log: $msg }}}
-    'function': ({ name, args, do: body }, variables, { evaluate }) =>
-      evaluate({ $var: { [name]: { '$=>': { args, do: body }}}}, variables),
-
     // $if/cond/then/else is a special form because it only evaluates one of the if/else clauses
+    // e.g. { $if: { cond: { '$>': [ '$x', 0 ] }, then: 'some' } }
     // or { $if: { cond: { '$>': [ '$x', 0 ] }, then: 'some', else: 'none' } }
-    'if': async ({ cond, then, else: otherwise }, variables, { evaluate }) =>
-      await evaluate(cond, variables) ?
-        evaluate(then, variables) :
-        evaluate(otherwise, variables),
-
-    // eslint-disable-next-line no-console
-    'globals': (_args, _variables, { globals }) => console.log(globals),
-
-    // eslint-disable-next-line no-console
-    'variables': (_args, variables) => console.log(variables),
+    'if': async ({ cond, then, else: otherwise }, env, { evaluate }) =>
+      await evaluate(cond, env) ?
+        evaluate(then, env) :
+        evaluate(otherwise, env),
 
     // this is really just a start at a way to exit evaluating early
     // (I was thinking/hoping evaluate can check this but it doesn't yet)
@@ -217,6 +205,21 @@ export default {
 
       globals._exit = true
     },
+  },
+
+  macros: {
+    // $function/name/args/do = a named function
+    // { $function: { name: fnname, args: [ '$arg1', ..., '$argN'], do: [ function body ] }}
+    // e.g. { $function: { name: '$print', args: [ '$msg' ], do: { $console.log: $msg }}}
+    'function': ({ name, args, do: body }) => ({
+      $var: { [name]: { '$=>': { args, do: body }}},
+    }),
+
+    // $foreach/in/as/do = for each array element do something (this is a simplified version of $for/in/do)
+    // e.g.: { $foreach: { in: [ 0, 1, 2 ], as: $elem, do: { $console.log: $elem }}}
+    'foreach': ({ in: array, as, do: body }) => ({
+      '$for': { in: array, 'do': { '$=>': { args: [ as ], 'do': body }}},
+    }),
   },
 
   // global values (not functions or special forms just values)

@@ -15,27 +15,33 @@ const getRegistryTable = (registry, tableKey, typeFlag = '') => {
   return lookupTable
 }
 
-export const interpreter = (options = {}) => {
+// construct and return a new interpreter
+// options are { trace: true|false } (more options to come)
+// extensions are a registry with keys of specialForms/handlers/functions/macros/globals
+// (extensions add to the builtins to create the initial environment)
+export const interpreter = (options = {}, extensions = {}) => {
   // options.trace = true
 
-  const globals = {
-    trace: options.trace,
+  const globalEnv = {
+    options,
     // "specialForms" are marked _special so we know not to eval their arguments:
     ...getRegistryTable(builtins, 'specialForms', '_special'),
-    // "handlers" are marked _handler so we know to pass them variables and jexi.evaluate:
+    // "handlers" are marked _handler so we know to pass them env and jexi.evaluate:
     ...getRegistryTable(builtins, 'handlers', '_handler'),
+    ...getRegistryTable(builtins, 'macros', '_macro'),
     ...getRegistryTable(builtins, 'functions'),
     ...getRegistryTable(builtins, 'globals'),
 
-    // note options.registry can override builtins of the same name if they choose
-    ...getRegistryTable(options.registry, 'specialForms', '_special'),
-    ...getRegistryTable(options.registry, 'handlers', '_handler'),
-    ...getRegistryTable(options.registry, 'functions'),
-    ...getRegistryTable(options.registry, 'globals'),
+    // note extensions can override builtins of the same name if they choose
+    ...getRegistryTable(extensions, 'specialForms', '_special'),
+    ...getRegistryTable(extensions, 'handlers', '_handler'),
+    ...getRegistryTable(extensions, 'macros', '_macro'),
+    ...getRegistryTable(extensions, 'functions'),
+    ...getRegistryTable(extensions, 'globals'),
   }
 
   // eslint-disable-next-line no-console
-  const trace = (...args) => globals.trace && console.log.apply(null, args)
+  const trace = (...args) => globalEnv.options.trace && console.log.apply(null, args)
 
   // our "symbols" in JSON strings marked with a prefix "$"
   // but being sure to ignore money e.g. "$1.50" or syntax that may
@@ -87,10 +93,18 @@ export const interpreter = (options = {}) => {
     return results
   }
 
-  const evaluate = async (form, variables = globals, options = {}) => {
+  const evaluate = async (form, env = globalEnv) => {
     trace('evaluate: evaluating:', JSON.stringify(form, null, 2))
-    //trace('evaluate: evaluating with vars of:', JSON.stringify(variables, null, 2))
+    //trace('evaluate: evaluating with vars of:', JSON.stringify(env, null, 2))
     let result = form
+
+    // $env and $globals are handled specially
+    // TBD add a way for e.g. "$env" invoke a function without the need for the { $env: null } syntax?
+    switch (form) {
+      case '$env': return env
+      case '$globals': return globalEnv
+      default: break
+    }
 
 // DO I/DON'T I STILL NEED TO EVALUATE ELEMENTS OF ARRAYS?
 // evaluateArrayForm USED TO DO THAT MAYBE I SHOULD HAVE KEPT THAT PART
@@ -98,14 +112,14 @@ export const interpreter = (options = {}) => {
 // SO FAR IN TESTING I'M NOT SURE BUT MAYBE IT'S OK WITHOUT?  ALSO I HAVE { $do: [...] } FOR OP SEQUENCES
     if (typeof form === 'object') {
       // eslint-disable-next-line no-use-before-define
-      result = await evaluateObjectForm(form, variables, options)
+      result = await evaluateObjectForm(form, env)
     } else if (isSymbol(form)) {
-      trace(`evaluate: replacing "${form}" with variables.${symbolToString(form)}`)
+      trace(`evaluate: replacing "${form}" with env.${symbolToString(form)}`)
 
       // note that we've chosen to omit the "$" prefix on the *actual* keys used in variables
       // (this was done to make variables set by the interpreter and variables set by plain
       // javascript be consistent rather than interpreter ones starting "$" and others not)
-      result = get(variables, symbolToString(form))
+      result = get(env, symbolToString(form))
     } else {
       trace(`evaluate: passing ${form} thru as plain data`)
     }
@@ -116,10 +130,10 @@ export const interpreter = (options = {}) => {
   }
 
   // this is the instance of the interpreter we return customized according
-  // to the options they pass into the interpreter() creation function
+  // to the extensions they pass into the interpreter() creation function
   const theInterpreter = {
     evaluate,
-    globals,
+    globalEnv,
     isSymbol,
     getFnSymbolForForm,
     symbolToString,
@@ -130,17 +144,22 @@ export const interpreter = (options = {}) => {
   // an object form is { $fnSymbol: [ arg1 ... argN ] }
   // or (for convenience) { $fnSymbol: arg } when there is only one argument
   // eslint-disable-next-line no-unused-vars
-  const evaluateObjectForm = async (oform, variables, options = {}) => {
+  const evaluateObjectForm = async (oform, env) => {
     const $fnSymbol = getFnSymbolForForm(oform)
 
     if ($fnSymbol) {
       // evaluate the symbol to a function
-      // note this resolves e.g. "$console.log" which a simple variables[fname] wouldn't find
-      const func = await evaluate($fnSymbol, variables, options)
+      // note this resolves e.g. "$console.log" which a simple env[fname] wouldn't find
+      const func = await evaluate($fnSymbol, env)
 
-      if (func?._special) {
+      if (func?._macro) {
+        // a macro just returns another form to evaluate:
+        const expandedForm = await func(oform[$fnSymbol], env, theInterpreter)
+
+        return evaluate(expandedForm, env)
+      } else if (func?._special) {
         // special forms are called with their args unevaluated:
-        return func(oform[$fnSymbol], variables, theInterpreter)
+        return func(oform[$fnSymbol], env, theInterpreter)
       } else if (typeof func === 'function') {
         // regular forms have their args evaluated before they are called
         // the equivalent here is the values of all keys are evaluated before the fn is called
@@ -148,13 +167,13 @@ export const interpreter = (options = {}) => {
         const args = oform[$fnSymbol]
         const argsArr = args ? castArray(args) : []
         // WHAT WAS MY RATIONALE FOR ARG EVALS NOT RUNNING CONCURRENTLY??? 
-        const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, variables, options))
+        const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, env))
 
         trace(`evaluateObjectForm: calling ${$fnSymbol}`)
 
         const result = func._handler ?
-          // handlers get the evaluated args, variables "context" and jexi interpreter:
-          func(evaluatedArgs, variables, theInterpreter) :
+          // handlers get the evaluated args, env "context" and jexi interpreter:
+          func(evaluatedArgs, env, theInterpreter) :
           // plain (non "handler") functions get the evaluated args spread as their args
           func(...evaluatedArgs)
 
@@ -180,7 +199,7 @@ export const interpreter = (options = {}) => {
     const keys = Object.keys(oform) || []
 
     await mapAndWait(keys, async key => {
-      const evaluated = await evaluate(oform[key], variables)
+      const evaluated = await evaluate(oform[key], env)
 
       oform[key] = evaluated
     })
