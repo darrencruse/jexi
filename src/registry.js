@@ -27,14 +27,6 @@ export default {
     '<': (lhs, rhs) => lhs < rhs,
     '<=': (lhs, rhs) => lhs <= rhs,
 
-    // $for/in/do = for each array element do a lamdba
-    // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': { args: [ '$elem' ], do: { '$console.log': '$elem' }}}}}
-    'for': async ({ in: array, do: fn }) => {
-      for await (const elem of array) {
-        fn(elem)
-      }
-    },
-
     // $map/in/by = map array data using a function
     // e.g. { $map: { in: [ 0, 1, 2 ], by: { '$=>': { args: [ '$elem' ], do: { '$*': [ '$elem', 2 ]}}}}}
     'map': async ({ in: array, by: fn }) => {
@@ -62,6 +54,16 @@ export default {
   // etc.
   // note: unlike special forms handlers have their arguments evaluated *before* they are called
   handlers: {
+    // $for/in/do = for each array element do a lamdba
+    // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': { args: [ '$elem' ], do: { '$console.log': '$elem' }}}}}
+    'for': async ([{ in: array, do: fn }], variables, jexi) => {
+      for await (const elem of array) {
+        fn([ elem ], variables, jexi)
+      }
+    },
+
+    // foreach city cities [print city]
+
     // $filter/in/where = filter array data using a predicate
     // e.g. { $filter: { in: [ -1, 0, 1 ], where: { '$=>': { args: [ '$elem' ], do: { '$>': [ '$elem', 0 ]}}}}}
     'filter': async ([{ in: array, where: fn }], variables, { evaluate }) => {
@@ -75,6 +77,19 @@ export default {
   // they don't have their arguments evaluated before they are called
   // most special forms define control structures or perform variable bindings
   specialForms: {
+    // $new = constructs an instance using javascript "new"
+    // example: { $new: { $Date: [ 'December 17, 1995 03:24:00' ] } }
+    'new': async (classAndArgs, variables, { evaluate, trace }) => {
+      trace('in new:', classAndArgs)
+
+      const [ classSymbol, constructorArgs ] = Object.entries(classAndArgs)[0]
+
+      // lookup the actual javscript class using $class
+      const theClass = await evaluate(classSymbol, variables)
+
+      return new theClass(...constructorArgs)
+    },
+
     // $let/var/in = defines a scope with one or more local variables
     // example: { $let: { var: {'$x': 1, '$y': 2}, in: [body uses $x and $y] }}
     'let': async (varsInObj, variables, { evaluate, symbolToString, trace }) => {
@@ -207,5 +222,13 @@ export default {
   // global values (not functions or special forms just values)
   globals: {
     console,
+    JSON,
+    Array,
+    Object,
+    Set,
+    Map,
+    Date,
+    Math,
+    Error,
   },
 }
