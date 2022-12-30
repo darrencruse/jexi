@@ -14,6 +14,7 @@ export default {
     '||': (lhs, rhs) => lhs || rhs,
     '+': (lhs, rhs) => lhs + rhs,
     '-': (lhs, rhs) => lhs - rhs,
+    // note really-relaxed-json doesn't like $* it needs it quoted as '$*'
     '*': (lhs, rhs) => lhs * rhs,
     '/': (lhs, rhs) => lhs / rhs,
     '%': (lhs, rhs) => lhs % rhs,
@@ -27,18 +28,6 @@ export default {
     '>=': (lhs, rhs) => lhs >= rhs,
     '<': (lhs, rhs) => lhs < rhs,
     '<=': (lhs, rhs) => lhs <= rhs,
-
-    // $map/in/by = map array data using a function
-    // e.g. { $map: { in: [ 0, 1, 2 ], by: { '$=>': { args: [ '$elem' ], do: { '$*': [ '$elem', 2 ]}}}}}
-    'map': async ({ in: array, by: fn }) => {
-      const mapPromises = array.map(fn)
-
-      // await promises for the results (if promises came back)
-      const resolved = Array.isArray(mapPromises) && mapPromises.length > 0 && mapPromises[0].then ?
-        await Promise.all(mapPromises) : mapPromises
-
-      return resolved
-    },
 
     // $do = do a sequence of operations in an array and return the value of the last one
     'do': (...evaledForms) => evaledForms.length > 0 ? evaledForms[evaledForms.length - 1] : evaledForms,
@@ -61,6 +50,18 @@ export default {
       for await (const elem of array) {
         fn([ elem ], env, jexi)
       }
+    },
+
+    // $map/in/by = map array data using a function
+    // e.g. { $map: { in: [ 0, 1, 2 ], by: { '$=>': { args: [ '$elem' ], do: { '$+': [ '$elem', 1 ]}}}}}
+    'map': async ([{ in: array, by: fn }], env, jexi) => {
+      const mapPromises = array.map(elem => fn([ elem ], env, jexi))
+
+      // await promises for the results (if promises came back)
+      const resolved = Array.isArray(mapPromises) && mapPromises.length > 0 && mapPromises[0].then ?
+        await Promise.all(mapPromises) : mapPromises
+
+      return resolved
     },
 
     // $filter/in/where = filter array data using a predicate
@@ -160,7 +161,7 @@ export default {
         // put the values passed for the arguments into a local scope
         // note: if called from javascript using the global vars is better than no vars at all
         //   (e.g. $for does a simple array.forEach which calls this lamdba function directly)
-        const localContext = Object.create(jexi?.evaluate ? env : globals)
+        const localContext = Object.create(jexi?.evaluate ? env : globals || null)
 
         if (Array.isArray(invokedArgs) && argNames) {
           argNames.forEach((argsymbol, i) => {
@@ -219,6 +220,12 @@ export default {
     // e.g.: { $foreach: { in: [ 0, 1, 2 ], as: $elem, do: { $console.log: $elem }}}
     'foreach': ({ in: array, as, do: body }) => ({
       '$for': { in: array, 'do': { '$=>': { args: [ as ], 'do': body }}},
+    }),
+
+    // $mapeach/in/as/by = map array data using a function
+    // e.g. { $mapeach: { in: [ 0, 1, 2 ], as: $elem, by: { '$+': [ '$elem', 1 ] }}}
+    'mapeach': ({ in: array, as, by: fn }) => ({
+      $map: { in: array, by: { '$=>': { args: [ as ], 'do': fn }}},
     }),
   },
 
