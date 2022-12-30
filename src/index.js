@@ -16,10 +16,10 @@ const getRegistryTable = (registry, tableKey, typeFlag = '') => {
 }
 
 // construct and return a new interpreter
-// options are { trace: true|false } (more options to come)
 // extensions are a registry with keys of specialForms/handlers/functions/macros/globals
 // (extensions add to the builtins to create the initial environment)
-export const interpreter = (options = {}, extensions = {}) => {
+// options are { trace: true|false } (more options to come)
+export const interpreter = (extensions = {}, options = {}) => {
   // options.trace = true
 
   const globalEnv = {
