@@ -1,29 +1,47 @@
-/* eslint-disable no-extra-parens, no-underscore-dangle */
+/* eslint-disable no-extra-parens, no-underscore-dangle, no-undef-init */
 import builtins from './registry.js'
+import castArray from 'lodash.castarray'
 import get from 'lodash.get'
-import repl from 'repl'
 
-const getRegistrySpecialForms = registry => {
-  if (!registry || !registry.specialForms) {
-    return {}
+const getRegistryTable = (registry, tableKey, typeFlag = '') => {
+  const lookupTable = registry?.[tableKey] || {}
+
+  if (typeFlag) {
+    Object.keys(lookupTable).forEach(key => {
+      lookupTable[key][typeFlag] = true
+    })
   }
 
-  // the "specialForms" section of the registry is just a convenience
-  // (they wind up in global scope with the other functions but marked _special)
-  Object.keys(registry.specialForms).forEach(key => {
-    registry.specialForms[key]._special = true
-  })
-
-  return registry.specialForms
+  return lookupTable
 }
 
-const getRegistryFunctions = registry => registry && registry.functions || {}
+// construct and return a new interpreter
+// extensions are a registry with keys of specialForms/handlers/functions/macros/globals
+// (extensions add to the builtins to create the initial environment)
+// options are { trace: true|false } (more options to come)
+export const interpreter = (extensions = {}, options = {}) => {
+  // options.trace = true
 
-export const interpreter = (options = {}) => {
-  //options.trace = true
+  const globalEnv = {
+    options,
+    // "specialForms" are marked _special so we know not to eval their arguments:
+    ...getRegistryTable(builtins, 'specialForms', '_special'),
+    // "handlers" are marked _handler so we know to pass them env and jexi.evaluate:
+    ...getRegistryTable(builtins, 'handlers', '_handler'),
+    ...getRegistryTable(builtins, 'macros', '_macro'),
+    ...getRegistryTable(builtins, 'functions'),
+    ...getRegistryTable(builtins, 'globals'),
+
+    // note extensions can override builtins of the same name if they choose
+    ...getRegistryTable(extensions, 'specialForms', '_special'),
+    ...getRegistryTable(extensions, 'handlers', '_handler'),
+    ...getRegistryTable(extensions, 'macros', '_macro'),
+    ...getRegistryTable(extensions, 'functions'),
+    ...getRegistryTable(extensions, 'globals'),
+  }
 
   // eslint-disable-next-line no-console
-  const trace = (...args) => options.trace && console.log.apply(null, args)
+  const trace = (...args) => globalEnv.options.trace && console.log.apply(null, args)
 
   // our "symbols" in JSON strings marked with a prefix "$"
   // but being sure to ignore money e.g. "$1.50" or syntax that may
@@ -32,29 +50,25 @@ export const interpreter = (options = {}) => {
   const symRegex = new RegExp('^\\$[^$0-9][^(){}]*$')
   const isSymbol = atom => typeof atom === 'string' && symRegex.test(atom)
 
-  // converting symbol to string just removes the $ prefix
-  const symbolToString = symbolStr => symbolStr.substring(1)
+  // converting symbol to string just removes the $ prefix (if it has one)
+  const symbolToString = symbolStr => isSymbol(symbolStr) ? symbolStr.substring(1) : String(symbolStr)
 
   // converting string to symbol just adds the $ prefix
-  const stringToSymbol = str => `${str.trim()}`
+  const stringToSymbol = str => !isSymbol(str) ? `$${str.trim()}` : str
 
-  // return the "$function" symbol specified in the provided (array or object) form
-  // (otherwise null if there isn't one)
+  // return the "$function" symbol specified in the provided object form call { $function: [ args ] }.
+  // Otherwise null if there isn't one
   const getFnSymbolForForm = form => {
     let fnSymbol = null
 
-    if (Array.isArray(form)) {
-      fnSymbol = form.length > 0 && isSymbol(form[0]) && form[0]
-    } else {
-      const keys = Object.keys(form) || []
-      const symbols = keys.filter(isSymbol)
+    const keys = Object.keys(form) || []
+    const symbols = keys.filter(isSymbol)
 
-      if (symbols.length > 0) {
-        fnSymbol = symbols[0]
+    if (symbols.length > 0) {
+      fnSymbol = symbols[0]
 
-        if (symbols.length > 1) {
-          console.warn(`Warning: ambiguous object form with multiple "$function" keys (using ${fnSymbol}):`)
-        }
+      if (symbols.length > 1) {
+        console.warn(`Warning: ambiguous object form with multiple "$function" keys (using ${fnSymbol}):`)
       }
     }
 
@@ -79,32 +93,33 @@ export const interpreter = (options = {}) => {
     return results
   }
 
-  const globals = {
-    ...getRegistrySpecialForms(builtins),
-    ...getRegistrySpecialForms(options.registry),
-    ...getRegistryFunctions(builtins),
-    ...getRegistryFunctions(options.registry),
-  }
-
-  trace('interpreter globals=', globals)
-
-  const evaluate = async (form, variables = globals, options = {}) => {
+  const evaluate = async (form, env = globalEnv) => {
     trace('evaluate: evaluating:', JSON.stringify(form, null, 2))
-    //trace('evaluate: evaluating with vars of:', JSON.stringify(variables, null, 2))
+    //trace('evaluate: evaluating with vars of:', JSON.stringify(env, null, 2))
     let result = form
 
-    if (Array.isArray(form)) {
-      // eslint-disable-next-line no-use-before-define
-      result = await evaluateArrayForm(form, variables, options)
-    } else if (typeof form === 'object') {
-      // eslint-disable-next-line no-use-before-define
-      result = await evaluateObjectForm(form, variables, options)
-    } else if (isSymbol(form)) {
-      trace(`evaluate: replacing "${form}"/"${symbolToString(form)}" value from variables`)
+    // $env and $globals are handled specially
+    // TBD add a way for e.g. "$env" invoke a function without the need for the { $env: null } syntax?
+    switch (form) {
+      case '$env': return env
+      case '$globals': return globalEnv
+      default: break
+    }
 
-      // note that we've made including the "$" prefix on the *actual* variable names
-      // optional (this might change TBD)
-      result = get(variables, form) || get(variables, symbolToString(form))
+// DO I/DON'T I STILL NEED TO EVALUATE ELEMENTS OF ARRAYS?
+// evaluateArrayForm USED TO DO THAT MAYBE I SHOULD HAVE KEPT THAT PART
+// (EVEN IF THE LISPY STYLE HANDLING OF [$fn, arg1, ..., argN ]) went away?
+// SO FAR IN TESTING I'M NOT SURE BUT MAYBE IT'S OK WITHOUT?  ALSO I HAVE { $do: [...] } FOR OP SEQUENCES
+    if (typeof form === 'object') {
+      // eslint-disable-next-line no-use-before-define
+      result = await evaluateObjectForm(form, env)
+    } else if (isSymbol(form)) {
+      trace(`evaluate: replacing "${form}" with env.${symbolToString(form)}`)
+
+      // note that we've chosen to omit the "$" prefix on the *actual* keys used in variables
+      // (this was done to make variables set by the interpreter and variables set by plain
+      // javascript be consistent rather than interpreter ones starting "$" and others not)
+      result = get(env, symbolToString(form))
     } else {
       trace(`evaluate: passing ${form} thru as plain data`)
     }
@@ -114,113 +129,77 @@ export const interpreter = (options = {}) => {
     return result
   }
 
-  const startRepl = (options = {}) => {
-    // TBD SHOULD I BE USING THEIR PROVIDED CONTEXT OR WIRING IT TO OURS SOMEHOW?
-    const replEval = async (cmd, _context, _filename, callback) => {
-      let form = null
-      let result = null
-
-      try {
-        form = JSON.parse(cmd)
-      } catch (err) {
-        result = 'Invalid JSON please correct.'
-      }
-
-      if (form) {
-        result = await evaluate(form)
-      }
-
-      callback(null, result)
-    }
-
-    repl.start({ prompt: `${options.prompt || '>'} `, eval: replEval })
-  }
-
   // this is the instance of the interpreter we return customized according
-  // to the options they pass into the interpreter() creation function
+  // to the extensions they pass into the interpreter() creation function
   const theInterpreter = {
     evaluate,
-    globals,
+    globalEnv,
     isSymbol,
     getFnSymbolForForm,
-    repl: startRepl,
     symbolToString,
     stringToSymbol,
+    trace,
   }
 
-  // the array form is really the classic lispy s-expression form
-  const evaluateArrayForm = async (sform, variables, options = {}) => {
-    const $fnSymbol = getFnSymbolForForm(sform)
-
-    // special forms are called with their args unevaluated:
-    if ($fnSymbol && variables[$fnSymbol] && variables[$fnSymbol]._special) {
-      return variables[$fnSymbol](sform, variables, trace, theInterpreter)
-    }
-
-    // regular forms have their args evaluated before they are called
-    // note: we also wait here for promises (if any) to settle before making the call
-    let evaluated = []
-
-    if (options.parallel) {
-      const promises = sform.map(atom => evaluate(atom, variables))
-
-      evaluated = await Promise.all(promises)
-    } else {
-      // normally we wait for each step to complete
-      // (later functions might depend on the output of earlier ones)
-      evaluated = await mapAndWait(sform, atom => evaluate(atom, variables))
-    }
-
-
-    trace('evaluateArrayForm: evaluated before call:', JSON.stringify(evaluated, null, 2), evaluated[0], typeof evaluated[0])
-    if (typeof evaluated[0] === 'function') {
-      trace(`evaluateArrayForm: calling ${$fnSymbol}`)
-
-      return evaluated[0].call(undefined, evaluated, variables, trace, theInterpreter)
-    }
-
-    trace(`evaluateArrayForm: ${$fnSymbol} not a function passing thru as evaluated data`)
-    if ($fnSymbol && typeof evaluated[0] === 'undefined') {
-      // this was an unrecognized symbol pass it thru unchanged
-      evaluated[0] = $fnSymbol
-    }
-
-    return evaluated
-  }
-
-  // the object form is using json object keys like named arguments
+  // an object form is { $fnSymbol: [ arg1 ... argN ] }
+  // or (for convenience) { $fnSymbol: arg } when there is only one argument
   // eslint-disable-next-line no-unused-vars
-  const evaluateObjectForm = async (oform, variables, options = {}) => {
-    // special forms are called with their args unevaluated:
-    const keys = Object.keys(oform) || []
+  const evaluateObjectForm = async (oform, env) => {
     const $fnSymbol = getFnSymbolForForm(oform)
 
     if ($fnSymbol) {
-      if (variables[$fnSymbol] && variables[$fnSymbol]._special) {
-        return variables[$fnSymbol](oform, variables, trace, theInterpreter)
-      } else if (typeof variables[$fnSymbol] === 'function') {
-        // regular sforms have their args evaluated before they are called
+      // evaluate the symbol to a function
+      // note this resolves e.g. "$console.log" which a simple env[fname] wouldn't find
+      const func = await evaluate($fnSymbol, env)
+
+      if (func?._macro) {
+        // a macro just returns another form to evaluate:
+        const expandedForm = await func(oform[$fnSymbol], env, theInterpreter)
+
+        return evaluate(expandedForm, env)
+      } else if (func?._special) {
+        // special forms are called with their args unevaluated:
+        return func(oform[$fnSymbol], env, theInterpreter)
+      } else if (typeof func === 'function') {
+        // regular forms have their args evaluated before they are called
         // the equivalent here is the values of all keys are evaluated before the fn is called
         // note: we also wait here for promises (if any) to settle before making the call
-        await mapAndWait(keys, async key => {
-          const evaluated = await evaluate(oform[key], variables)
-
-          oform[key] = evaluated
-        })
+        const args = oform[$fnSymbol]
+        const argsArr = args ? castArray(args) : []
+        // WHAT WAS MY RATIONALE FOR ARG EVALS NOT RUNNING CONCURRENTLY??? 
+        const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, env))
 
         trace(`evaluateObjectForm: calling ${$fnSymbol}`)
 
-        return variables[$fnSymbol].call(undefined, oform, variables, trace, theInterpreter)
+        const result = func._handler ?
+          // handlers get the evaluated args, env "context" and jexi interpreter:
+          func(evaluatedArgs, env, theInterpreter) :
+          // plain (non "handler") functions get the evaluated args spread as their args
+          func(...evaluatedArgs)
+
+        trace(`evaluateObjectForm: returning from calling ${$fnSymbol}`, result)
+
+        return result
       }
 
+      // TBD this should probably change to being an error...
+      // i.e. this is more likely a typo than an intention to pass thru data with $ in a key?
       trace(`evaluateObjectForm: passing thru object with unrecognized symbol key "${$fnSymbol}":`, JSON.stringify(oform, null, 2))
     }
 
-    trace('evaluateObjectForm: evaluting key values of plain object as a template')
+    // IS THIS DEFINITELY WHAT I SHOULD DO HERE?
+    // CANT I ASSUME AN OBJECT WITHOUT A { $fn: [] } FORM IS JUST JSON ALL THE WAY DOWN?
+    // IF NOT THEN EVALUATING ALL THE ELEMENTS IN AN ARRAY SEEMS TO PARALLEL THIS BUT I DELETED THAT!!??
+    // AREN'T THESE TWO THINGS BAD FOR PERFORMANCE THOUGH?
+    // WHAT IF ITS A LIVE ASSEMBLER RUN WITH MEGABYTES OF PAYLOAD JSON AND I'M RUNNING OVER THE WHOLE ARRAYS?
+    // IF I'M MODELING LISPY STYLE LANGUAGE WHY ISN'T THERE LIKE { $quote: [ json ] } TO STOP THE RECURSION?
+    trace('evaluateObjectForm: evaluating key values of plain object as a template')
 
     // note: we also wait here for promises (if any) to settle
+    const keys = Object.keys(oform) || []
+
     await mapAndWait(keys, async key => {
-      const evaluated = await evaluate(oform[key], variables)
+      const evaluated = await evaluate(oform[key], env)
 
       oform[key] = evaluated
     })
