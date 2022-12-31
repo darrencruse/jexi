@@ -13,7 +13,7 @@ The key ideas in Jexi are:
 
   (this version is in javascript and is tested in node.js and the browser)
 
-* Since Jexi code is JSON it can be easily stored and manipulated e.g. in MongoDB, sent over the wire via api calls, etc.
+* Since Jexi code is JSON it is easy to store/query/manipulate e.g. in MongoDB, sent over the wire via api calls, etc.
 
 * Jexi code might be ideal for saving from GUIs ala Low-Code/No-Code solutions
 
@@ -57,11 +57,11 @@ The key ideas in Jexi are:
 
   names preceded with `$` are variables resolved within the environment (e.g. `$foreach` is a function resolved in the environment while `in`, `as`, and `do` are not)
 
-* A repl is provided here that can be starte with:
+* A repl is provided here that can be started with:
 
   `npm run repl`
 
-  The repl makes use of the "really-relaxed-json" package which allows you to omit the extra quotes on symbols to read nicer (more like JSON in a javascript file allows - in really-relaxed-json even goes further e.g. making commas optional):
+  The repl makes use of the "relaxed-json" package which allows you to omit the extra quotes on symbols to read nicer (more like JSON in a javascript file allows - and relaxed-json even goes further e.g. making commas, and even quotes around certain strings, optional):
 
   ```
   {
@@ -75,8 +75,22 @@ The key ideas in Jexi are:
   }
   ```
 
-  In the repl you can snoop at the current environment by typing: `$env`
+  The relaxed-json people have an online playground here I've found helpful:
+  http://www.relaxedjson.org/docs/converter.html
 
-  And if you'd like to enable tracing to see what Jexi is doing you can do:
+  I've saved a few examples here in the relaxed-json format as `.jexi` files alongside their equivalent `.json` versions.
 
-  `{ $set: { $options.trace: true } }`
+  You can run those from the repl using `$read` e.g.
+
+  `{ $read: 'examples/jsonpath.jexi' }`
+
+  A couple other things you can do in the repl are:
+
+  - to snoop at the current environment type:
+
+    `$env`
+
+  - to enable tracing of the Jexi interpreter type:
+
+    `{ $set: { $options.trace: true } }`
+
