@@ -47,7 +47,7 @@ export const interpreter = (extensions = {}, options = {}) => {
   // but being sure to ignore money e.g. "$1.50" or syntax that may
   // arise when embedding *other* expression languages e.g.
   // jsonpath ("$.prop"), jsonata ("$max(array)") etc.
-  const symRegex = new RegExp('^\\$[^$0-9][^(){}]*$')
+  const symRegex = new RegExp('^\\$[^$0-9\\.\\[][^(){}]*$')
   const isSymbol = atom => typeof atom === 'string' && symRegex.test(atom)
 
   // converting symbol to string just removes the $ prefix (if it has one)
@@ -106,15 +106,19 @@ export const interpreter = (extensions = {}, options = {}) => {
       default: break
     }
 
-// DO I/DON'T I STILL NEED TO EVALUATE ELEMENTS OF ARRAYS?
-// evaluateArrayForm USED TO DO THAT MAYBE I SHOULD HAVE KEPT THAT PART
-// (EVEN IF THE LISPY STYLE HANDLING OF [$fn, arg1, ..., argN ]) went away?
-// SO FAR IN TESTING I'M NOT SURE BUT MAYBE IT'S OK WITHOUT?  ALSO I HAVE { $do: [...] } FOR OP SEQUENCES
-    if (typeof form === 'object') {
+    // note the below does evaluate their entire json { $fn } expressions even down
+    // within the json.  i.e. like a template language.
+    // TBD not sure this is best default (e.g. performance might suffer on large data) 
+    if (Array.isArray(form)) {
+      // normally we wait for each step to complete
+      // (later functions might depend on the output of earlier ones)
+      // eslint-disable-next-line no-use-before-define
+      result = await mapAndWait(form, element => evaluate(element, env))
+    } else if (typeof form === 'object') {
       // eslint-disable-next-line no-use-before-define
       result = await evaluateObjectForm(form, env)
     } else if (isSymbol(form)) {
-      trace(`evaluate: replacing "${form}" with env.${symbolToString(form)}`)
+      trace(`evaluate: replacing "${form}" with ${symbolToString(form)} from the environment`)
 
       // note that we've chosen to omit the "$" prefix on the *actual* keys used in variables
       // (this was done to make variables set by the interpreter and variables set by plain
@@ -133,7 +137,7 @@ export const interpreter = (extensions = {}, options = {}) => {
   // to the extensions they pass into the interpreter() creation function
   const theInterpreter = {
     evaluate,
-    globalEnv,
+    globals: globalEnv,
     isSymbol,
     getFnSymbolForForm,
     symbolToString,
@@ -166,7 +170,8 @@ export const interpreter = (extensions = {}, options = {}) => {
         // note: we also wait here for promises (if any) to settle before making the call
         const args = oform[$fnSymbol]
         const argsArr = args ? castArray(args) : []
-        // WHAT WAS MY RATIONALE FOR ARG EVALS NOT RUNNING CONCURRENTLY??? 
+        // note here we need e.g. { $do: [...] } to evaluate the statements in order
+        // TBD maybe later offer a "$doparallel"? 
         const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, env))
 
         trace(`evaluateObjectForm: calling ${$fnSymbol}`)
@@ -187,24 +192,24 @@ export const interpreter = (extensions = {}, options = {}) => {
       trace(`evaluateObjectForm: passing thru object with unrecognized symbol key "${$fnSymbol}":`, JSON.stringify(oform, null, 2))
     }
 
-    // IS THIS DEFINITELY WHAT I SHOULD DO HERE?
-    // CANT I ASSUME AN OBJECT WITHOUT A { $fn: [] } FORM IS JUST JSON ALL THE WAY DOWN?
-    // IF NOT THEN EVALUATING ALL THE ELEMENTS IN AN ARRAY SEEMS TO PARALLEL THIS BUT I DELETED THAT!!??
-    // AREN'T THESE TWO THINGS BAD FOR PERFORMANCE THOUGH?
-    // WHAT IF ITS A LIVE ASSEMBLER RUN WITH MEGABYTES OF PAYLOAD JSON AND I'M RUNNING OVER THE WHOLE ARRAYS?
-    // IF I'M MODELING LISPY STYLE LANGUAGE WHY ISN'T THERE LIKE { $quote: [ json ] } TO STOP THE RECURSION?
+    // note the following may be bad for performance with large payloads
+    // they can use $quote/$json to mark data they know doesn't need to evaluated
+    // TBD is defaulting to evaluating everything the best though?  could I
+    //  have e.g. "$template" to indicate eval is needed everywhere but not 
+    //  do that by default (maybe I use $ even on named arguments and only 
+    //  evaluate those when not within a "$template"?)
+
     trace('evaluateObjectForm: evaluating key values of plain object as a template')
 
-    // note: we also wait here for promises (if any) to settle
-    const keys = Object.keys(oform) || []
+    // note it's important here to make a new object and not mutate the incoming form
+    // (which may get reused e.g. in the body of a for/map/etc.)
+    const evaluated = {}
 
-    await mapAndWait(keys, async key => {
-      const evaluated = await evaluate(oform[key], env)
+    for await (const [ key, value ] of Object.entries(oform)) {
+      evaluated[key] = await evaluate(value, env)
+    }
 
-      oform[key] = evaluated
-    })
-
-    return oform
+    return evaluated
   }
 
   return theInterpreter

@@ -1,4 +1,5 @@
 /* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle */
+import { JSONPath } from 'jsonpath-plus'
 import set from 'lodash.set'
 
 // the registry maps the built-in "$symbols" to javascript functions/values.
@@ -31,6 +32,11 @@ export default {
 
     // $do = do a sequence of operations in an array and return the value of the last one
     'do': (...evaledForms) => evaledForms.length > 0 ? evaledForms[evaledForms.length - 1] : evaledForms,
+
+    // $jsonpath/path/in = return jsonpath matches within the specified json 
+    // e.g. { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
+    // or from the env e.g. { $jsonpath: { path: '$.store.book[*].author', in: $payloads.bookStore }}
+    'jsonpath': ({ path, in: json }) => JSONPath({ path, json }),
   },
 
   // built-in "handlers" provided by the interpreter
@@ -77,6 +83,11 @@ export default {
   // they don't have their arguments evaluated before they are called
   // most special forms define control structures or perform variable bindings
   specialForms: {
+    // $quote = return the quoted form as plain json unevaluated
+    // e.g.  { $quote: '$.store.book[*].author' }
+    // IS THIS SUFFICIENT FOR QUOTE?  READ UP ABOUT QUOTE/QUASIQUOTE EG IN THE MAL TUTORIAL?
+    'quote': unevaluatedForm => unevaluatedForm,
+
     // $new = constructs an instance using javascript "new"
     // example: { $new: { $Date: [ 'December 17, 1995 03:24:00' ] } }
     'new': async (classAndArgs, env, { evaluate, trace }) => {
@@ -138,9 +149,11 @@ export default {
     'set': async (declarationsObj, env, { evaluate, symbolToString, trace }) => {
       for await (const [ symbol, value ] of Object.entries(declarationsObj)) {
         const path = symbolToString(symbol)
+        const evaluated = await evaluate(value, env)
 
-        trace(`setting ${path} to ${value}`)
-        set(env, path, await evaluate(value, env))
+        trace(`setting ${path} to eval of ${evaluated}`)
+
+        set(env, path, evaluated)
       }
 
       // we intentionally evaluate to undefined here
@@ -178,10 +191,10 @@ export default {
         }
 
         // evaluate the body of the function with it's args in scope:
-        trace('evaluating body of lambda:', body)
+        trace('evaluating body of lambda:', JSON.stringify(body))
         const result = await evaluate(body, localContext)
 
-        trace('got from evaluating body of lambda:', body, ' LOOK:', result)
+        trace('got from evaluating body of lambda:', JSON.stringify(body), 'result:', result)
 
         return result
       }
@@ -198,6 +211,14 @@ export default {
       await evaluate(cond, env) ?
         evaluate(then, env) :
         evaluate(otherwise, env),
+
+    // // $jsonpath/path/in = return jsonpath matches within the specified json 
+    // // e.g. { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
+    // // or from the env e.g. { $jsonpath: { path: '$.store.book[*].author', in: $payloads.bookStore }}
+    // 'jsonpath': async ({ path, in: json }, env, { evaluate }) =>
+    //   // don't evaluate the jsonpath because those often start with "$" which jexi
+    //   // would try to interpret (most likely giving undefined) instead of jsonpath  
+    //   JSONPath({ path, json: await evaluate(json, env) }),
 
     // this is really just a start at a way to exit evaluating early
     // (I was thinking/hoping evaluate can check this but it doesn't yet)
@@ -227,6 +248,10 @@ export default {
     'mapeach': ({ in: array, as, by: fn }) => ({
       $map: { in: array, by: { '$=>': { args: [ as ], 'do': fn }}},
     }),
+
+    // $json = identify json as just data
+    // this is just an alias for $quote (similar to "list" in lisp)
+    'json': data => ({ $quote: data }),
   },
 
   // global values (not functions or special forms just values)
