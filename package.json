@@ -5,9 +5,9 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "NODE_ENV=production node src/index.js",
-    "debug": "NODE_ENV=development node --nolazy --inspect-brk=9229 src/index.js",
-    "repl": "NODE_ENV=development node src/repl.js",
+    "start": "NODE_ENV=production NODE_TLS_REJECT_UNAUTHORIZED=0 node src/index.js",
+    "debug": "NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 node --nolazy --inspect-brk=9229 src/index.js",
+    "repl": "NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 node src/repl.js",
     "lint": "eslint --format table --ext .js src test --cache",
     "test": "NODE_ENV=test jest",
     "test:dev": "NODE_ENV=test jest --watch",
@@ -38,6 +38,7 @@
   },
   "homepage": "https://github.com/darrencruse/jexi#readme",
   "dependencies": {
+    "cross-fetch": "^3.1.5",
     "jsonata": "^2.0.0",
     "jsonpath-plus": "^7.2.0",
     "lodash.castarray": "4.4.0",
