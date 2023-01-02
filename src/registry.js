@@ -1,6 +1,18 @@
 /* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle */
 import { JSONPath } from 'jsonpath-plus'
+import jsonata from 'jsonata'
 import set from 'lodash.set'
+
+const compiledJsonataMap = new Map()
+
+const jsonataPromise = (expr, data, bindings) => new Promise((resolve, reject) => {
+  expr.evaluate(data, bindings, (error, response) => {
+    if (error) {
+      reject(error)
+    }
+    resolve(response)
+  })
+})
 
 // the registry maps the built-in "$symbols" to javascript functions/values.
 // the application adds to by passing similar to the below as "extensions"
@@ -32,11 +44,6 @@ export default {
 
     // $do = do a sequence of operations in an array and return the value of the last one
     'do': (...evaledForms) => evaledForms.length > 0 ? evaledForms[evaledForms.length - 1] : evaledForms,
-
-    // $jsonpath/path/in = return jsonpath matches within the specified json 
-    // e.g. { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
-    // or from the env e.g. { $jsonpath: { path: '$.store.book[*].author', in: $payloads.bookStore }}
-    'jsonpath': ({ path, in: json }) => JSONPath({ path, json }),
   },
 
   // built-in "handlers" provided by the interpreter
@@ -76,6 +83,48 @@ export default {
       const inOrOut = await evaluate({ $map: { in: array, by: fn }}, env)
 
       return array.filter((_elem, i) => inOrOut[i])
+    },
+
+    // $jsonpath/path/in = return jsonpath matches within the specified json
+    // (otherwise within the entire environment if 'path/in' is omitted)
+    // e.g. from json: { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
+    // or from a var: e.g. { $jsonpath: { path: '$.store.book[*].author', in: $bookStore }}
+    // or directly in the environment: { $jsonpath: '$.bookStore.store.book[*].author' }
+    'jsonpath': ([ arg ], env) => {
+      const path = typeof arg === 'string' ? arg : arg.path
+      const json = arg.in || env
+
+      return JSONPath({ path, json })
+    },
+
+    // $jsonpath/path/in = return jsonpath matches within the specified json
+    // (otherwise within the entire environment if 'in' is omitted)
+    // e.g. { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
+    // or from the env e.g. { $jsonpath: { path: '$.store.book[*].author', in: $payloads.bookStore }}
+    'jsonata': async ([ arg ], env) => {
+      const expression = typeof arg === 'string' ? arg : arg.expr
+      const json = arg.in || env
+      let compiled = compiledJsonataMap.get(expression)
+
+      if (!compiled) {
+        compiled = jsonata(expression)
+
+        compiledJsonataMap.set(expression, compiled)
+      }
+
+      try {
+        // evaluate the jsonata without cloning
+        const result = await jsonataPromise(compiled, json, { clone: arg => arg })
+
+        // jsonata adds a "sequence" flag on arrays that we don't want:
+        if (Array.isArray(result) && typeof result.sequence !== 'undefined') {
+          delete result.sequence
+        }
+
+        return result
+      } catch (e) {
+        throw new Error(`Failed to execute jsonata expression. ${e.message} Expression: ${expression}`)
+      }
     },
   },
 
