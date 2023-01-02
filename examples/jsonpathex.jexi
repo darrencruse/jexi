@@ -1,0 +1,67 @@
+[
+  { $load: examples/data/bookStore.json }
+  {
+    $local: {
+      var: {
+        $examples: [
+          {
+            path: '$.store.book[*].author'
+            description: 'the authors of all books in the store'
+          }
+          {
+            path: $..author
+            description: 'all authors anywhere in the json'
+          }
+          {
+            path: '$.store.*'
+            description: 'all things in store, which are some books and a red bicycle'
+          }
+          {
+            path: $.store..price
+            description: 'the price of everything in the store'
+          }
+          {
+            path: '$..book[2]'
+            description: 'the third book'
+          }
+          {
+            path: '$..book[-1:]'
+            description: 'the last book in order'
+          }
+          {
+            path: '$..book[0,1]'
+            description: 'the first two books'
+          }
+          {
+            path: '$..book[?(@.isbn)]'
+            description: 'filter all books with isbn number'
+          }
+          {
+            path: '$..book[?(@.price<10)]'
+            description: 'filter all books cheapier than 10'
+          }
+          {
+            path: '$..*'
+            description: 'All members of JSON structure'
+          }
+        ]
+      }
+      in: {
+        $foreach: {
+          in: $examples
+          as: $example
+          do: {
+            $console.log: [ $example.path ( $example.description ') ='
+              {
+                $jsonpath: {
+                  path: $example.path
+                  in: $bookStore
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+]
