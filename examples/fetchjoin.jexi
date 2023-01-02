@@ -1,0 +1,19 @@
+[
+  {
+    $var: {
+      $users: { $fetch: 'https://jsonplaceholder.typicode.com/users' },
+      $posts: { $fetch: 'http://jsonplaceholder.typicode.com/posts' },
+    },
+  },
+  {
+    $jsonata: "posts@$P.users@$U[$P.userId=$U.id].{\
+      'userId': $U.id,\
+      'user': $U.name,\
+      'userName': $U.username,\
+      'email': $U.email,\
+      'postId': $P.id,\
+      'title': $P.title,\
+      'body': $P.body\
+    }"
+  }
+]

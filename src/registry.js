@@ -263,6 +263,7 @@ export default {
       // we intentionally evaluate to undefined here
       // because $var defining a function was getting called
       // at the declaration
+      // TBD this seems surprising shouldn't this return the last declaration's value?
       return undefined
     },
 
