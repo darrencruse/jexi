@@ -80,7 +80,7 @@ The key ideas in Jexi are:
 
   I've saved a few examples here in the relaxed-json format as `.jexi` files alongside their equivalent `.json` versions.
 
-  You can run those from the repl using `$read` e.g.
+  You can run those from the repl using `$run` e.g.
 
   `{ $run: 'examples/jsonpathex.jexi' }`
 
