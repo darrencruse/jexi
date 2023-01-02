@@ -1,6 +1,7 @@
 /* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init */
 import { JSONPath } from 'jsonpath-plus'
 import RJson from 'really-relaxed-json'
+import fetch from 'cross-fetch'
 import jsonata from 'jsonata'
 import { readFile } from 'node:fs/promises'
 import set from 'lodash.set'
@@ -79,6 +80,41 @@ export default {
       }
 
       return forms
+    },
+
+
+    // fetch data from a url
+    // this uses the whatwg fetch standard "fetch" available in browsers and node.js (via a polyfill)
+    //
+    // for details of the options available see e.g.
+    // https://developer.mozilla.org/en-US/docs/Web/API/fetch
+    // e.g. for a simple GET: { $fetch: 'http://jsonplaceholder.typicode.com/posts' }
+    // or with options e.g. for POST:  { $fetch: [ 'http://jsonplaceholder.typicode.com/posts', {
+    //   method: 'POST',
+    //   body: {
+    //     title: 'foo',
+    //     body: 'bar',
+    //     userId: 1,
+    //   },
+    // }]}
+    //
+    // this just calls the fetch api directly except we help a little by:
+    // a. converting the body to a string if needed
+    // b. adding the application/json Content-Type header
+    // c. converting the response to json before returning the result
+    //
+    // TBD we've currently just assumed a json api is being accessed
+    //   this may be loosened later on
+    //
+    // note:  this is currently not working with the experimental fetch in node v17.5.0+ (hence the polyfill)
+    //   even worse polyfill(s?) seem not working in node versions newer than v16.19.0 - need to resolve
+    //
+    'fetch': async (url, options) => {
+      // eslint-disable-next-line no-undef
+      const res = await fetch(url, options)
+      const json = await res.json()
+
+      return json
     },
   },
 
