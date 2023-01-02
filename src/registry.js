@@ -85,11 +85,10 @@ export default {
       return array.filter((_elem, i) => inOrOut[i])
     },
 
-    // $jsonpath/path/in = return jsonpath matches within the specified json
-    // (otherwise within the entire environment if 'path/in' is omitted)
-    // e.g. from json: { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
+    // $jsonpath[/path/in|'path'] = match jsonpath to current environment or specified 'in' json
+    // e.g. using 'in': { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
     // or from a var: e.g. { $jsonpath: { path: '$.store.book[*].author', in: $bookStore }}
-    // or directly in the environment: { $jsonpath: '$.bookStore.store.book[*].author' }
+    // or directly to the environment: { $jsonpath: '$.bookStore.store.book[*].author' }
     'jsonpath': ([ arg ], env) => {
       const path = typeof arg === 'string' ? arg : arg.path
       const json = arg.in || env
@@ -97,10 +96,10 @@ export default {
       return JSONPath({ path, json })
     },
 
-    // $jsonpath/path/in = return jsonpath matches within the specified json
-    // (otherwise within the entire environment if 'in' is omitted)
-    // e.g. { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
-    // or from the env e.g. { $jsonpath: { path: '$.store.book[*].author', in: $payloads.bookStore }}
+    // $jsonata[/path/in|'path'] = run jsonata against current environment or specified 'in' json
+    // e.g. using 'in': { $jsonata: { path: '$.store.book.author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
+    // or from a var: e.g. { $jsonata: { path: '$.store.book.author', in: $bookStore }}
+    // or to the environment: { $jsonata: "$.bookStore.store.book.{ 'summary': $.title & ' by ' & $.author }"}
     'jsonata': async ([ arg ], env) => {
       const expression = typeof arg === 'string' ? arg : arg.expr
       const json = arg.in || env
