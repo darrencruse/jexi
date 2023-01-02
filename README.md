@@ -98,3 +98,7 @@ The key ideas in Jexi are:
 
     `{ $set: { $options.trace: true } }`
 
+* NOTE:  there seems to be an issue with $fetch as implemented here under versions of node.js newer than v16.19.0
+
+  if this isn't resolved by the community soon the version of $fetch here will be changed (the newest versions of node have an experimental version of the whatwg fetch api that is not working for some reason but other options e.g. superagent and axios are available)
+
