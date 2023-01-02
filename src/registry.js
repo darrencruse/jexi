@@ -98,10 +98,7 @@ export default {
     //   },
     // }]}
     //
-    // this just calls the fetch api directly except we help a little by:
-    // a. converting the body to a string if needed
-    // b. adding the application/json Content-Type header
-    // c. converting the response to json before returning the result
+    // this just calls the fetch api directly except we convert to json before returning the result
     //
     // TBD we've currently just assumed a json api is being accessed
     //   this may be loosened later on
