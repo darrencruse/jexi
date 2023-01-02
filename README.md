@@ -82,13 +82,17 @@ The key ideas in Jexi are:
 
   You can run those from the repl using `$read` e.g.
 
-  `{ $read: 'examples/jsonpath.jexi' }`
+  `{ $run: 'examples/jsonpathex.jexi' }`
 
   A couple other things you can do in the repl are:
 
-  - to snoop at the current environment type:
+  - to see the current environment variables do:
 
     `$env`
+
+  - to see the global environment (e.g. the built-in functions) do:
+
+    `$globals`
 
   - to enable tracing of the Jexi interpreter type:
 

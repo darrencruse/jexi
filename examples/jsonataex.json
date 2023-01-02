@@ -1,0 +1,48 @@
+[
+  {
+    "$local": {
+      "var": {
+        "$examples": [
+          {
+            "data": "examples/data/invoice.json",
+            "expr": "$sum(Account.Order.Product.(Price * Quantity))",
+            "description": "total for the invoice"
+          },
+          {
+            "data": "examples/data/address.json",
+            "expr": "{              \"name\": FirstName & \" \" & Surname,              \"mobile\": Phone[type = \"mobile\"].number            }",
+            "description": "full name with mobile phone"
+          },
+          {
+            "data": "examples/data/invoiceSchema.json",
+            "expr": "**.properties ~> $keys()",
+            "description": "all properties declared in the schema"
+          },
+          {
+            "data": "examples/data/library.json",
+            "expr": "library.loans@$L.books@$B[$L.isbn=$B.isbn].customers[$L.customer=id].{              'customer': name,              'book': $B.title,              'due': $L.return            }",
+            "description": "books checked out"
+          }
+        ]
+      },
+      "in": {
+        "$foreach": {
+          "in": "$examples",
+          "as": "$example",
+          "do": {
+            "$console.log": [ "$example.expr", "(", "$example.description", ") =",
+              {
+                "$jsonata": {
+                  "expr": "$example.expr",
+                  "in": {
+                    "$read": "$example.data"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+]

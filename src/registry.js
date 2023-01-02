@@ -1,6 +1,22 @@
-/* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle */
+/* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init */
 import { JSONPath } from 'jsonpath-plus'
+import RJson from 'really-relaxed-json'
+import jsonata from 'jsonata'
+import { readFile } from 'node:fs/promises'
 import set from 'lodash.set'
+
+const rjsonParser = RJson.createParser()
+
+const compiledJsonataMap = new Map()
+
+const jsonataPromise = (expr, data, bindings) => new Promise((resolve, reject) => {
+  expr.evaluate(data, bindings, (error, response) => {
+    if (error) {
+      reject(error)
+    }
+    resolve(response)
+  })
+})
 
 // the registry maps the built-in "$symbols" to javascript functions/values.
 // the application adds to by passing similar to the below as "extensions"
@@ -33,10 +49,37 @@ export default {
     // $do = do a sequence of operations in an array and return the value of the last one
     'do': (...evaledForms) => evaledForms.length > 0 ? evaledForms[evaledForms.length - 1] : evaledForms,
 
-    // $jsonpath/path/in = return jsonpath matches within the specified json 
-    // e.g. { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
-    // or from the env e.g. { $jsonpath: { path: '$.store.book[*].author', in: $payloads.bookStore }}
-    'jsonpath': ({ path, in: json }) => JSONPath({ path, json }),
+    // $read = read a .json or .jexi file's contents as JSON
+    // e.g. read contents of data.json: { $read: 'examples/data.json' }
+    // e.g. read contents of geodata.jexi converted to JSON: { $read: 'examples/geodata.jexi' }
+    read: async filepath => {
+      // eslint-disable-next-line no-unused-vars
+      const [ _wholepath, _filepath, filename, extension ] =
+        filepath.trim().match(/^(.+?\/)?([^./]+)(\.[^.]*$|$)/)
+      let contentsStr = undefined
+
+      try {
+        contentsStr = await readFile(filepath, { encoding: 'utf8' })
+      } catch (err) {
+        throw new Error(`Could not read file '${filepath}': ${err}`)
+      }
+
+      let forms = undefined
+
+      try {
+        // note if there's no file extension we still run relaxed-json
+        // (if it's JSON it just comes thru unchanged) 
+        const jsonStr = !extension || extension === '.jexi' ?
+          rjsonParser.stringToJson(contentsStr) :
+          contentsStr
+
+        forms = JSON.parse(jsonStr)
+      } catch (err) {
+        throw new Error(`The file '${filepath}' contains invalid JSON: ${err}`)
+      }
+
+      return forms
+    },
   },
 
   // built-in "handlers" provided by the interpreter
@@ -50,6 +93,10 @@ export default {
   // etc.
   // note: unlike special forms handlers have their arguments evaluated *before* they are called
   handlers: {
+    // $eval = evaluate the specified json as jexi code
+    // e.g. { $eval: { $read: 'examples/jsonpathex.jexi' } }
+    eval: ([ arg ], env, jexi) => jexi.evaluate(arg, env),
+
     // $for/in/do = for each array element do a lamdba
     // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': { args: [ '$elem' ], do: { '$console.log': '$elem' }}}}}
     'for': async ([{ in: array, do: fn }], env, jexi) => {
@@ -77,6 +124,47 @@ export default {
 
       return array.filter((_elem, i) => inOrOut[i])
     },
+
+    // $jsonpath[/path/in|'path'] = match jsonpath to current environment or specified 'in' json
+    // e.g. using 'in': { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
+    // or from a var: e.g. { $jsonpath: { path: '$.store.book[*].author', in: $bookStore }}
+    // or directly to the environment: { $jsonpath: '$.bookStore.store.book[*].author' }
+    'jsonpath': ([ arg ], env) => {
+      const path = typeof arg === 'string' ? arg : arg.path
+      const json = arg.in || env
+
+      return JSONPath({ path, json })
+    },
+
+    // $jsonata[/expr/in|'expression'] = run jsonata expression against current environment or specified 'in' json
+    // e.g. using 'in': { $jsonata: { expr: '$.store.book.author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
+    // or from a var: e.g. { $jsonata: { expr: '$.store.book.author', in: $bookStore }}
+    // or to the environment: { $jsonata: "$.bookStore.store.book.{ 'summary': $.title & ' by ' & $.author }"}
+    'jsonata': async ([ arg ], env) => {
+      const expression = typeof arg === 'string' ? arg : arg.expr
+      const json = arg.in || env
+      let compiled = compiledJsonataMap.get(expression)
+
+      if (!compiled) {
+        compiled = jsonata(expression)
+
+        compiledJsonataMap.set(expression, compiled)
+      }
+
+      try {
+        // evaluate the jsonata without cloning
+        const result = await jsonataPromise(compiled, json, { clone: arg => arg })
+
+        // jsonata adds a "sequence" flag on arrays that we don't want:
+        if (Array.isArray(result) && typeof result.sequence !== 'undefined') {
+          delete result.sequence
+        }
+
+        return result
+      } catch (e) {
+        throw new Error(`Failed to execute jsonata expression. ${e.message} Expression: ${expression}`)
+      }
+    },
   },
 
   // special forms are like normal functions but "special" in that
@@ -101,13 +189,15 @@ export default {
       return new theClass(...constructorArgs)
     },
 
-    // $let/var/in = defines a scope with one or more local variables
-    // example: { $let: { var: {'$x': 1, '$y': 2}, in: [body uses $x and $y] }}
-    'let': async (varsInObj, env, { evaluate, symbolToString, trace }) => {
-      trace('in let:', varsInObj)
+    // $local/var/in = defines a scope with one or more local variables
+    // example: { $local: { var: {'$x': 1, '$y': 2}, in: [body uses $x and $y] }}
+    // note lisps call this "let" but we use "local" to avoid confusion with
+    // statically scoped "let" e.g. in languages like javascript 
+    'local': async (varsInObj, env, { evaluate, createEnv, symbolToString, trace }) => {
+      trace('in local:', varsInObj)
 
       const { var: declarationsObj, in: body } = varsInObj
-      const letScope = Object.create(env)
+      const letScope = createEnv(env)
 
       for await (const [ symbol, value ] of Object.entries(declarationsObj)) {
         try {
@@ -119,7 +209,7 @@ export default {
           trace('read back:', letScope[name])
         } catch (err) {
           // TBD better error handling
-          console.error('In $let exception:', err, 'evaluating:', JSON.stringify(value, null, 2))
+          console.error('In $local exception:', err, 'evaluating:', JSON.stringify(value, null, 2))
         }
       }
 
@@ -162,7 +252,7 @@ export default {
 
     // $=>/args/do = lamdba/anonymous function
     // { $=>: { args: [ $arg1, ..., $argN], do: [ function body ] } }
-    '=>': (argsDoObj, declareContext, { evaluate, globals, symbolToString, trace }) => {
+    '=>': (argsDoObj, declareContext, { evaluate, createEnv, globals, symbolToString, trace }) => {
       trace('declaring the lambda:', argsDoObj)
 
       const { args: argNames, do: body } = argsDoObj
@@ -174,7 +264,7 @@ export default {
         // put the values passed for the arguments into a local scope
         // note: if called from javascript using the global vars is better than no vars at all
         //   (e.g. $for does a simple array.forEach which calls this lamdba function directly)
-        const localContext = Object.create(jexi?.evaluate ? env : globals || null)
+        const localContext = createEnv(jexi?.evaluate ? env : globals || null)
 
         if (Array.isArray(invokedArgs) && argNames) {
           argNames.forEach((argsymbol, i) => {
@@ -212,14 +302,6 @@ export default {
         evaluate(then, env) :
         evaluate(otherwise, env),
 
-    // // $jsonpath/path/in = return jsonpath matches within the specified json 
-    // // e.g. { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
-    // // or from the env e.g. { $jsonpath: { path: '$.store.book[*].author', in: $payloads.bookStore }}
-    // 'jsonpath': async ({ path, in: json }, env, { evaluate }) =>
-    //   // don't evaluate the jsonpath because those often start with "$" which jexi
-    //   // would try to interpret (most likely giving undefined) instead of jsonpath  
-    //   JSONPath({ path, json: await evaluate(json, env) }),
-
     // this is really just a start at a way to exit evaluating early
     // (I was thinking/hoping evaluate can check this but it doesn't yet)
     'exit': (_args, _variables, trace, { globals }) => {
@@ -252,6 +334,32 @@ export default {
     // $json = identify json as just data
     // this is just an alias for $quote (similar to "list" in lisp)
     'json': data => ({ $quote: data }),
+
+    // $load[/file/as|'file'] = load a .json or .jexi file 'as' a name (otherwise as the filename sans extension)
+    // (note the file contents are not evaluated - for that see "run/file")
+    // e.g. { $load: 'examples/geodata.jexi' } = load contents of geodata.jexi converted to JSON as $geodata
+    // or { $load: { file: 'examples/data.json', as: $geodata } = load contents of data.json as $geodata
+    load: arg => {
+      const filepath = typeof arg === 'string' ? arg : arg.file
+      // eslint-disable-next-line no-unused-vars
+      const [ _wholepath, _filepath, filename, filext ] =
+        filepath.trim().match(/^(.+?\/)?([^./]+)(\.[^.]*$|$)/)
+      const as = arg.as || filename
+
+      return { '$set': { [as]: { '$read': filepath }}}
+    },
+
+    // $run[/file|'file'] = execute the contents of .json or .jexi file
+    // e.g. { $run: 'examples/geodata.jexi' } = execute the contents of geodata.jexi
+    // or { $run: { file: 'examples/data.json' } = run contents of data.json
+    // note:  the '/file' option might have alternatives in the future e.g. '/url', '/s3', etc.?
+    run: arg => {
+      const filepath = typeof arg === 'string' ? arg : arg.file
+
+      // note the below is wrapped in $do to get the result of the last operation
+      // TBD need to clarify "template" versus "operations" type of usage(?)
+      return { '$eval': { '$do': { '$read': filepath }}}
+    },
   },
 
   // global values (not functions or special forms just values)

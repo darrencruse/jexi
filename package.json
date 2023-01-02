@@ -38,6 +38,7 @@
   },
   "homepage": "https://github.com/darrencruse/jexi#readme",
   "dependencies": {
+    "jsonata": "^2.0.0",
     "jsonpath-plus": "^7.2.0",
     "lodash.castarray": "4.4.0",
     "lodash.get": "4.4.2",

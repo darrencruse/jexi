@@ -1,7 +1,6 @@
 /* eslint-disable no-undef-init */
 import RJson from 'really-relaxed-json'
 import { interpreter } from './index.js'
-import { readFileSync } from 'node:fs'
 import repl from 'repl'
 import util from 'util'
 
@@ -9,7 +8,7 @@ const rjsonParser = RJson.createParser()
 
 const defaultOpts = { prompt: 'jexi>', relaxed: true }
 
-const startRepl = (jexi, replopts = defaultOpts) => {
+const startRepl = (jexi, env, replopts = defaultOpts) => {
   const isRecoverableError = error => {
     if (error.name === 'ParseException') {
       return /^Expected/.test(error.message)
@@ -43,7 +42,7 @@ const startRepl = (jexi, replopts = defaultOpts) => {
       }
 
       if (form) {
-        results = await jexi.evaluate(form)
+        results = await jexi.evaluate(form, env)
         if (Array.isArray(results) && results.length > 0 &&
           results.some(result => typeof result?.then === 'function')) {
           results = await Promise.all(results)
@@ -69,38 +68,9 @@ const startRepl = (jexi, replopts = defaultOpts) => {
 // eslint-disable-next-line no-console
 console.log('Starting Jexi REPL...')
 
-const extensions = {
-  handlers: {
-    // they can do:
-    //  { $read: 'path/to/file.json' }
-    // to read and evaluate the contents of a (relaxed or standard) json file
-    read: ([ filename ], env, jexi) => {
-      let jsonStr = undefined
-
-      try {
-        jsonStr = readFileSync(filename, 'utf8')
-      } catch (err) {
-        return `Could not read file ${filename}: $(err)`
-      }
-
-      // eslint-disable-next-line no-console
-      console.log(jsonStr)
-
-      let forms = undefined
-
-      try {
-        const inputStr = defaultOpts.relaxed ? rjsonParser.stringToJson(jsonStr) : jsonStr
-
-        forms = JSON.parse(inputStr)
-      } catch (err) {
-        return `The file contains invalid JSON: ${err}`
-      }
-
-      return jexi.evaluate(forms, env)
-    },
-  },
-}
+// imagining the repl will have it's own custom commands later on:
+const extensions = { }
 
 const jexi = interpreter(extensions, { trace: false })
 
-startRepl(jexi)
+startRepl(jexi, jexi.createEnv())

@@ -133,16 +133,20 @@ export const interpreter = (extensions = {}, options = {}) => {
     return result
   }
 
+  // create a new namespace environment extending a parent environment
+  const createEnv = (parentEnv = globalEnv) => Object.create(parentEnv)
+
   // this is the instance of the interpreter we return customized according
   // to the extensions they pass into the interpreter() creation function
   const theInterpreter = {
     evaluate,
+    trace,
+    createEnv,
     globals: globalEnv,
     isSymbol,
     getFnSymbolForForm,
     symbolToString,
     stringToSymbol,
-    trace,
   }
 
   // an object form is { $fnSymbol: [ arg1 ... argN ] }
