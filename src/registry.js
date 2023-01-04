@@ -400,7 +400,7 @@ export default {
     // e.g. { $getparameters: [{ alias: "name", describe: "Your name", type: "string", demandOption: true }] }
     'getparameters': options => {
       const parameters = yargs(process.argv.slice(2))
-        .usage(`Usage: $0 ${process.argv[2]} ${options.map(opt => `-${opt.alias} [${opt.type}]`).join(' ')}`)
+        .usage(`Usage: $0 ${process.argv[2]} ${options.map(opt => `--${opt.alias} [${opt.type}]`).join(' ')}`)
         .demandOption(options.reduce((accum, opt) => opt.demandOption ? [ ...accum, opt.alias ] : accum, []))
         .argv
 
