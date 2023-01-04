@@ -93,7 +93,10 @@ export const interpreter = (extensions = {}, options = {}) => {
     return results
   }
 
-  const evaluate = async (form, env = globalEnv) => {
+  // create a new namespace environment extending a parent environment
+  const createEnv = (parentEnv = globalEnv) => Object.create(parentEnv)
+
+  const evaluate = async (form, env = createEnv()) => {
     trace('evaluate: evaluating:', JSON.stringify(form, null, 2))
     //trace('evaluate: evaluating with vars of:', JSON.stringify(env, null, 2))
     let result = form
@@ -132,9 +135,6 @@ export const interpreter = (extensions = {}, options = {}) => {
 
     return result
   }
-
-  // create a new namespace environment extending a parent environment
-  const createEnv = (parentEnv = globalEnv) => Object.create(parentEnv)
 
   // this is the instance of the interpreter we return customized according
   // to the extensions they pass into the interpreter() creation function
