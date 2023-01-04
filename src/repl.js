@@ -1,6 +1,5 @@
 /* eslint-disable no-undef-init */
 import RJson from 'really-relaxed-json'
-import { interpreter } from './index.js'
 import repl from 'repl'
 import util from 'util'
 
@@ -8,7 +7,7 @@ const rjsonParser = RJson.createParser()
 
 const defaultOpts = { prompt: 'jexi>', relaxed: true }
 
-const startRepl = (jexi, env, replopts = defaultOpts) => {
+export const startRepl = (jexi, env, replopts = defaultOpts) => {
   const isRecoverableError = error => {
     if (error.name === 'ParseException') {
       return /^Expected/.test(error.message)
@@ -64,13 +63,3 @@ const startRepl = (jexi, env, replopts = defaultOpts) => {
     writer: writeFullDepth,
   })
 }
-
-// eslint-disable-next-line no-console
-console.log('Starting Jexi REPL...')
-
-// imagining the repl will have it's own custom commands later on:
-const extensions = { }
-
-const jexi = interpreter(extensions, { trace: false })
-
-startRepl(jexi, jexi.createEnv())

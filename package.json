@@ -3,11 +3,13 @@
   "version": "0.0.2",
   "description": "Jexi stands for 'json expression interpreter' (it's a lisp with json instead of parens!)",
   "main": "src/index.js",
+  "bin": {
+    "jexi": "./bin/jexi.js"
+  },
   "type": "module",
   "scripts": {
-    "start": "NODE_ENV=production NODE_TLS_REJECT_UNAUTHORIZED=0 node src/index.js",
+    "start": "NODE_ENV=production NODE_TLS_REJECT_UNAUTHORIZED=0 node bin/jexi.js",
     "debug": "NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 node --nolazy --inspect-brk=9229 src/index.js",
-    "repl": "NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 node src/repl.js",
     "lint": "eslint --format table --ext .js src test --cache",
     "test": "NODE_ENV=test jest",
     "test:dev": "NODE_ENV=test jest --watch",
@@ -44,7 +46,8 @@
     "lodash.castarray": "4.4.0",
     "lodash.get": "4.4.2",
     "lodash.set": "4.3.2",
-    "really-relaxed-json": "^0.3.2"
+    "really-relaxed-json": "^0.3.2",
+    "yargs": "^17.6.2"
   },
   "devDependencies": {
     "@babel/core": "7.9.0",

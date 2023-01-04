@@ -5,6 +5,7 @@ import fetch from 'cross-fetch'
 import jsonata from 'jsonata'
 import { readFile } from 'node:fs/promises'
 import set from 'lodash.set'
+import yargs from 'yargs'
 
 const rjsonParser = RJson.createParser()
 
@@ -393,6 +394,20 @@ export default {
       // note the below is wrapped in $do to get the result of the last operation
       // TBD need to clarify "template" versus "operations" type of usage(?)
       return { '$eval': { '$do': { '$read': filepath }}}
+    },
+
+    // $getparameters = get provided input parameters into the environment (as "$parameters" by default)
+    // e.g. { $getparameters: [{ alias: "name", describe: "Your name", type: "string", demandOption: true }] }
+    'getparameters': options => {
+      const parameters = yargs(process.argv.slice(2))
+        .usage(`Usage: $0 ${process.argv[2]} ${options.map(opt => `-${opt.alias} [${opt.type}]`).join(' ')}`)
+        .demandOption(options.reduce((accum, opt) => opt.demandOption ? [ ...accum, opt.alias ] : accum, []))
+        .argv
+
+      delete parameters._
+      delete parameters.$0
+
+      return { '$set': { '$parameters': parameters }}
     },
   },
 
