@@ -1,5 +1,5 @@
-[
-  { $load: examples/data/bookStore.json }
+{ $do: [
+  { $load: { $+: [$JEXI_HOME, '/examples/data/bookStore.json'] }},
   {
     $local: {
       var: {
@@ -64,4 +64,4 @@
       }
     }
   }
-]
+]}

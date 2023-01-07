@@ -1,11 +1,14 @@
 /* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init */
 import { JSONPath } from 'jsonpath-plus'
 import RJson from 'really-relaxed-json'
+import { URL } from 'url'
 import fetch from 'cross-fetch'
 import jsonata from 'jsonata'
 import { readFile } from 'node:fs/promises'
 import set from 'lodash.set'
 import yargs from 'yargs'
+
+const JEXI_HOME = new URL('..', import.meta.url).pathname
 
 const rjsonParser = RJson.createParser()
 
@@ -199,6 +202,21 @@ export default {
         throw new Error(`Failed to execute jsonata expression. ${e.message} Expression: ${expression}`)
       }
     },
+
+    // $load[/file/as|'file'] = load a .json or .jexi file 'as' a name (otherwise as the filename sans extension)
+    // (note the file contents are not evaluated - for that see "run/file")
+    // e.g. { $load: 'examples/geodata.jexi' } = load contents of geodata.jexi converted to JSON as $geodata
+    // or { $load: { file: 'examples/data.json', as: 'geodata' } = load contents of data.json as $geodata
+    load: ([ arg ], env, jexi) => {
+      const filepath = typeof arg === 'string' ? arg : arg.file
+
+      // eslint-disable-next-line no-unused-vars
+      const [ _wholepath, _filepath, filename, filext ] =
+        filepath.trim().match(/^(.+?\/)?([^./]+)(\.[^.]*$|$)/)
+      const as = arg.as || filename
+
+      return jexi.evaluate({ '$set': { [as]: { '$read': filepath }}}, env)
+    },
   },
 
   // special forms are like normal functions but "special" in that
@@ -370,20 +388,6 @@ export default {
     // this is just an alias for $quote (similar to "list" in lisp)
     'json': data => ({ $quote: data }),
 
-    // $load[/file/as|'file'] = load a .json or .jexi file 'as' a name (otherwise as the filename sans extension)
-    // (note the file contents are not evaluated - for that see "run/file")
-    // e.g. { $load: 'examples/geodata.jexi' } = load contents of geodata.jexi converted to JSON as $geodata
-    // or { $load: { file: 'examples/data.json', as: $geodata } = load contents of data.json as $geodata
-    load: arg => {
-      const filepath = typeof arg === 'string' ? arg : arg.file
-      // eslint-disable-next-line no-unused-vars
-      const [ _wholepath, _filepath, filename, filext ] =
-        filepath.trim().match(/^(.+?\/)?([^./]+)(\.[^.]*$|$)/)
-      const as = arg.as || filename
-
-      return { '$set': { [as]: { '$read': filepath }}}
-    },
-
     // $run[/file|'file'] = execute the contents of .json or .jexi file
     // e.g. { $run: 'examples/geodata.jexi' } = execute the contents of geodata.jexi
     // or { $run: { file: 'examples/data.json' } = run contents of data.json
@@ -422,5 +426,7 @@ export default {
     Date,
     Math,
     Error,
+    JEXI_HOME,
+    PWD: process.env.PWD,
   },
 }
