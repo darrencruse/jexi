@@ -1,0 +1,15 @@
+{ 
+    $do: [
+        { $function: { name: $factorial, args: [ $n ], do: {
+            $if: { 
+                cond: { $==: [ $n, 0 ] },
+                then: 1,
+                // note the quotes around '$*' are currently required
+                // (they workaround a bug in relaxed-json)
+                else: { '$*': [$n, { $factorial: { $-: [$n, 1]}}]}
+            }
+        }}},
+        { $console.log: ['factorial 5 is:', { $factorial: 5 }] }
+        { $console.log: ['factorial 40 is:', { $factorial: 40 }] }
+    ]
+}

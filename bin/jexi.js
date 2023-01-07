@@ -5,7 +5,7 @@ import { startRepl } from '../src/repl.js'
 
 // if they gave a filename:
 if (process.argv.length > 2 && !process.argv[2].startsWith('-')) {
-  const jexi = interpreter()
+  const jexi = interpreter({}, { trace: false })
 
   // run it
   const result = await jexi.evaluate({ $run: process.argv[2] })
