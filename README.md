@@ -1,4 +1,4 @@
-# jexi
+# Jexi
 Jexi is all about "executable JSON"
 
 "Jexi" stands for 'json expression interpreter'
