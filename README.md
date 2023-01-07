@@ -13,7 +13,7 @@ The key ideas in Jexi are:
 
   (this version is in javascript and is tested in node.js and the browser)
 
-* Since Jexi code is JSON it is easy to store/query/manipulate e.g. in MongoDB, sent over the wire via api calls, etc.
+* Since Jexi code is JSON it is easy to store/query/manipulate it e.g. in MongoDB, send it over the wire via api calls, etc.
 
 * Jexi code might be ideal for saving from GUIs ala Low-Code/No-Code solutions
 
@@ -57,14 +57,12 @@ The key ideas in Jexi are:
 
   names preceded with `$` are variables resolved within the environment (e.g. `$foreach` is a function resolved in the environment while `in`, `as`, and `do` are not)
 
-* A repl is provided here that can be started with:
-
-  `npm run repl`
-
-  The repl makes use of the "relaxed-json" package which allows you to omit the extra quotes on symbols to read nicer (more like JSON in a javascript file allows - and relaxed-json even goes further e.g. making commas, and even quotes around certain strings, optional):
+* Since getting all the quotes etc. correct in JSON can be a challenge Jexi makes use of the "relaxed-json" package which allows you to omit the extra quotes on symbols to read nicer (more like JSON in a javascript file allows) and relaxed-json even goes further as you can see here:
 
   ```
   {
+    // most quotes (and even commas) are optional:
+    // and yes comments (such as this one :) are allowed
     $foreach: {
       in: [ 0 1 2 ]
       as: $elem
@@ -78,13 +76,43 @@ The key ideas in Jexi are:
   The relaxed-json people have an online playground here I've found helpful:
   http://www.relaxedjson.org/docs/converter.html
 
+* The main Jexi command is simply `jexi`.
+
   I've saved a few examples here in the relaxed-json format as `.jexi` files alongside their equivalent `.json` versions.
 
-  You can run those from the repl using `$run` e.g.
+  Using jexi you can run those from the command line e.g.
 
-  `{ $run: 'examples/jsonpathex.jexi' }`
+  ```
+  $ jexi examples/factorial.jexi 
+  factorial 5 is: 120
+  factorial 40 is: 8.159152832478977e+47
+  ```
+
+* If you run Jexi without any arguments it will start a repl:
+
+  ```
+  $ jexi
+  Starting Jexi REPL...
+  jexi> 
+  ```
+
+  When in the repl you can run examples using `$run` e.g.
+
+  ```
+  $ jexi
+  Starting Jexi REPL...
+  jexi> { $run: examples/factorial.jexi }
+  factorial 5 is: 120
+  factorial 40 is: 8.159152832478977e+47
+  undefined
+  jexi> 
+  ```
 
   A couple other things you can do in the repl are:
+
+  - to load a file (and not run it) do:
+  
+    `{$load: path/to/file.jexi}`
 
   - to see the current environment variables do:
 
@@ -97,6 +125,70 @@ The key ideas in Jexi are:
   - to enable tracing of the Jexi interpreter type:
 
     `{ $set: { $options.trace: true } }`
+
+Here's a an example of a little repl session loading the factorial example and then copy/pasting parts to eval:
+
+  ```
+  $ jexi
+  Starting Jexi REPL...
+  jexi> {$load: examples/factorial.jexi}
+  undefined
+  jexi> $env
+  {
+    factorial: {
+      '$do': [
+        {
+          '$function': {
+            name: '$factorial',
+            args: [ '$n' ],
+            do: {
+              '$if': {
+                cond: { '$==': [ '$n', 0 ] },
+                then: 1,
+                else: {
+                  '$*': [
+                    '$n',
+                    { '$factorial': { '$-': [ '$n', 1 ] } }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        { '$console.log': [ 'factorial 5 is:', { '$factorial': 5 } ] },
+        { '$console.log': [ 'factorial 40 is:', { '$factorial': 40 } ] }
+      ]
+    }
+  }
+  jexi> {
+  ...         '$function': {
+  ...           name: '$factorial',
+  ...           args: [ '$n' ],
+  ...           do: {
+  ...             '$if': {
+  ...               cond: { '$==': [ '$n', 0 ] },
+  ...               then: 1,
+  ...               else: {
+  ...                 '$*': [
+  ...                   '$n',
+  ...                   { '$factorial': { '$-': [ '$n', 1 ] } }
+  ...                 ]
+  ...               }
+  ...             }
+  ...           }
+  ...         }
+  ...       }
+  undefined
+  jexi> $env
+  { factorial: [AsyncFunction: lambda] { _handler: true } }
+  jexi> { '$factorial': 5 }
+  120
+  jexi> { '$console.log': [ 'factorial 40 is:', { '$factorial': 40 } ] }
+  factorial 40 is: 8.159152832478977e+47
+  undefined
+  jexi> 
+  (To exit, press Ctrl+C again or Ctrl+D or type .exit)
+  ```
 
 * NOTE:  there seems to be an issue with $fetch as implemented here under versions of node.js newer than v16.19.0
 
