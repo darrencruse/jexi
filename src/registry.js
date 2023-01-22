@@ -1,8 +1,9 @@
-/* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init */
+/* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init, no-console */
 import { JSONPath } from 'jsonpath-plus'
 import RJson from 'really-relaxed-json'
 import { URL } from 'url'
 import fetch from 'cross-fetch'
+import jayson from 'jayson'
 import jsonata from 'jsonata'
 import { readFile } from 'node:fs/promises'
 import set from 'lodash.set'
@@ -54,21 +55,28 @@ export default {
     // $do = do a sequence of operations in an array and return the value of the last one
     'do': (...evaledForms) => evaledForms.length > 0 ? evaledForms[evaledForms.length - 1] : evaledForms,
 
-    // $read = read a .json or .jexi file's contents as JSON
+    // $read = read a .json or .jexi file or url's contents as JSON
     // e.g. read contents of data.json: { $read: 'examples/data.json' }
     // e.g. read contents of geodata.jexi converted to JSON: { $read: 'examples/geodata.jexi' }
-    read: async filepath => {
-      // eslint-disable-next-line no-unused-vars
-      const [ _wholepath, _filepath, filename, extension ] =
-        filepath.trim().match(/^(.+?\/)?([^./]+)(\.[^.]*$|$)/)
+    // or from a url: { $read: 'https://raw.githubusercontent.com/darrencruse/jexi/master/examples/data/address.json' }
+    read: async (filepathOrUrl, options) => {
       let contentsStr = undefined
 
       try {
-        contentsStr = await readFile(filepath, { encoding: 'utf8' })
+        if (filepathOrUrl.startsWith('http')) {
+          const res = await fetch(filepathOrUrl, options)
+
+          contentsStr = await res.text()
+        } else {
+          contentsStr = await readFile(filepathOrUrl, { encoding: 'utf8' })
+        }
       } catch (err) {
-        throw new Error(`Could not read file '${filepath}': ${err}`)
+        throw new Error(`Could not read file '${filepathOrUrl}': ${err}`)
       }
 
+      // eslint-disable-next-line no-unused-vars
+      const [ _wholepath, _filepath, filename, extension ] =
+        filepathOrUrl.trim().match(/^(.+?\/)?([^./]+)(\.[^.]*$|$)/)
       let forms = undefined
 
       try {
@@ -80,7 +88,7 @@ export default {
 
         forms = JSON.parse(jsonStr)
       } catch (err) {
-        throw new Error(`The file '${filepath}' contains invalid JSON: ${err}`)
+        throw new Error(`The file '${filepathOrUrl}' contains invalid JSON: ${err}`)
       }
 
       return forms
@@ -361,6 +369,42 @@ export default {
       trace('Setting global _exit flag to abort the evaluation')
 
       globals._exit = true
+    },
+
+    // $remote[/do/at]
+    // { $remote: { $*: [ 2, 2 ] }}
+    // or
+    // { $remote: { do: { $*: [ 2, 2 ], at: 'http://localhost:3001' }}
+    'remote': async doAtObj => {
+      const remoteCode = doAtObj.do || doAtObj
+      // later allow the server url to come from a known $server_url or something
+      // in the jexi environment so it doesn't have to be passed to every $remote
+      const jexiServerUrl = doAtObj.at || 'http://localhost:3001'
+
+      // generate a json-rpc-2 request
+      const jexiRequestBody = jayson.Utils.request('jexi', remoteCode, undefined, { version: 2 })
+
+      const res = await fetch(jexiServerUrl, {
+        method: 'POST',
+        body: JSON.stringify(jexiRequestBody),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const body = await res.json()
+
+      // check if we got a valid JSON-RPC 2.0 response
+      if (!jayson.Utils.Response.isValidResponse(body, 2)) {
+        console.err(body)
+      }
+
+      if (body.error) {
+        // we have a json-rpc error...
+        console.err(body.error)
+      }
+
+      return body.result
     },
   },
 
