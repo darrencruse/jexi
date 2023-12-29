@@ -1,0 +1,3 @@
+#!/bin/bash
+# run jexi using node.js
+/usr/bin/env NODE_TLS_REJECT_UNAUTHORIZED=0 node bin/jexi.js $@

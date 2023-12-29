@@ -1,12 +1,17 @@
 /* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init */
 import { JSONPath } from 'jsonpath-plus'
 import RJson from 'really-relaxed-json'
-import { URL } from 'url'
-import fetch from 'cross-fetch'
+import { URL } from 'node:url'
+// import xfetch from 'cross-fetch'
 import jsonata from 'jsonata'
 import { readFile } from 'node:fs/promises'
 import set from 'lodash.set'
 import yargs from 'yargs'
+
+const isDeno = typeof Deno !== 'undefined'
+const env = isDeno ? Deno.env.toObject() : process.env
+const args = isDeno ? Deno.args : process.argv.slice(2)
+const fetchApi = fetch // isDeno ? xfetch : fetch
 
 const JEXI_HOME = new URL('..', import.meta.url).pathname
 
@@ -112,7 +117,7 @@ export default {
     //
     'fetch': async (url, options) => {
       // eslint-disable-next-line no-undef
-      const res = await fetch(url, options)
+      const res = await fetchApi(url, options)
       const json = await res.json()
 
       return json
@@ -403,8 +408,8 @@ export default {
     // $getparameters = get provided input parameters into the environment (as "$parameters" by default)
     // e.g. { $getparameters: [{ alias: "name", describe: "Your name", type: "string", demandOption: true }] }
     'getparameters': options => {
-      const parameters = yargs(process.argv.slice(2))
-        .usage(`Usage: $0 ${process.argv[2]} ${options.map(opt => `--${opt.alias} [${opt.type}]`).join(' ')}`)
+      const parameters = yargs(args)
+        .usage(`Usage: $0 ${args[0]} ${options.map(opt => `--${opt.alias} [${opt.type}]`).join(' ')}`)
         .demandOption(options.reduce((accum, opt) => opt.demandOption ? [ ...accum, opt.alias ] : accum, []))
         .argv
 
@@ -427,6 +432,6 @@ export default {
     Math,
     Error,
     JEXI_HOME,
-    PWD: process.env.PWD,
+    PWD: env.PWD,
   },
 }

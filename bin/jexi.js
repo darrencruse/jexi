@@ -1,14 +1,15 @@
-#!/usr/bin/env NODE_TLS_REJECT_UNAUTHORIZED=0 node
-
 import { interpreter } from '../src/index.js'
 import { startRepl } from '../src/repl.js'
 
+const isDeno = typeof Deno !== 'undefined'
+const args = isDeno ? Deno.args : process.argv.slice(2)
+
 // if they gave a filename:
-if (process.argv.length > 2 && !process.argv[2].startsWith('-')) {
+if (args.length > 0 && !args[0].startsWith('-')) {
   const jexi = interpreter({}, { trace: false })
 
   // run it
-  const result = await jexi.evaluate({ $run: process.argv[2] })
+  const result = await jexi.evaluate({ $run: args[0] })
 
   console.log(result)
 } else {
