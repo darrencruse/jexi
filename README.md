@@ -31,7 +31,7 @@ The key ideas in Jexi are:
 
   in Jexi you write: `{ "$+": [ 1, 1 ] }`
 
-  you can think of single "$" key objects like the above as Jexi's *o-expression* answer to Lisp *s-expressions*  
+  you can think of single "$" key objects like the above as Jexi's "*o-expression*" (or "*j-expession*"?) answer to Lisp *s-expressions* ;)  
 
 * Jexi encourages named arguments (ala Smalltalk) using JSON object keys like:
 
@@ -190,7 +190,4 @@ Here's a an example of a little repl session loading the factorial example and t
   (To exit, press Ctrl+C again or Ctrl+D or type .exit)
   ```
 
-* NOTE:  there seems to be an issue with $fetch as implemented here under versions of node.js newer than v16.19.0
-
-  if this isn't resolved by the community soon the version of $fetch here will be changed (the newest versions of node have an experimental version of the whatwg fetch api that is not working for some reason but other options e.g. superagent and axios are available)
-
+* NOTE:  the examples here fetchjoin.jexi and fetchpost.jexi may give trouble if you are behind a proxy (try setting HTTPS_PROXY and HTTP_PROXY environment variables if so)
