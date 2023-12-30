@@ -2,7 +2,6 @@
 import { JSONPath } from 'jsonpath-plus'
 import RJson from 'really-relaxed-json'
 import { URL } from 'node:url'
-// import xfetch from 'cross-fetch'
 import jsonata from 'jsonata'
 import { readFile } from 'node:fs/promises'
 import set from 'lodash.set'
@@ -11,7 +10,6 @@ import yargs from 'yargs'
 const isDeno = typeof Deno !== 'undefined'
 const env = isDeno ? Deno.env.toObject() : process.env
 const args = isDeno ? Deno.args : process.argv.slice(2)
-const fetchApi = fetch // isDeno ? xfetch : fetch
 
 const JEXI_HOME = new URL('..', import.meta.url).pathname
 
@@ -117,7 +115,7 @@ export default {
     //
     'fetch': async (url, options) => {
       // eslint-disable-next-line no-undef
-      const res = await fetchApi(url, options)
+      const res = await fetch(url, options)
       const json = await res.json()
 
       return json

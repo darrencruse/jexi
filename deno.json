@@ -1,6 +1,5 @@
 {
   "imports": {
-    "cross-fetch": "https://esm.sh/cross-fetch@^3.1.5",
     "jsonata": "https://esm.sh/jsonata@^2.0.0",
     "jsonpath-plus": "https://esm.sh/jsonpath-plus@^7.2.0",
     "lodash.castarray": "https://esm.sh/lodash.castarray@4.4.0",
