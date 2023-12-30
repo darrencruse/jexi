@@ -1,7 +1,9 @@
 /* eslint-disable no-undef-init */
 import RJson from 'really-relaxed-json'
-import repl from 'repl'
-import util from 'util'
+// turns out the Deno node:repl module is not available
+// TBD is how to get the jexi repl working under Deno
+import repl from 'node:repl'
+import util from 'node:util'
 
 const rjsonParser = RJson.createParser()
 

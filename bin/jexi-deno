@@ -1,0 +1,3 @@
+#!/bin/bash
+# run jexi using Deno
+deno run --allow-env --allow-read --allow-net bin/jexi.js $@

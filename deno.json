@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "jsonata": "https://esm.sh/jsonata@^2.0.0",
+    "jsonpath-plus": "https://esm.sh/jsonpath-plus@^7.2.0",
+    "lodash.castarray": "https://esm.sh/lodash.castarray@4.4.0",
+    "lodash.get": "https://esm.sh/lodash.get@4.4.2",
+    "lodash.set": "https://esm.sh/lodash.set@4.3.2",
+    "really-relaxed-json": "https://esm.sh/really-relaxed-json@^0.3.2",
+    "yargs": "https://deno.land/x/yargs/deno.ts"
+  }
+}
