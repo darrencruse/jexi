@@ -8,14 +8,16 @@
     },
   },
   {
-    $jsonata: "payloads.posts@$P.users@$U[$P.userId=$U.id].{\
-      'userId': $U.id,\
-      'user': $U.name,\
-      'userName': $U.username,\
-      'email': $U.email,\
-      'postId': $P.id,\
-      'title': $P.title,\
-      'body': $P.body\
-    }"
+    $_.sortBy: [{
+      $jsonata: "payloads.posts@$P.users@$U[$P.userId=$U.id].{\
+        'userId': $U.id,\
+        'user': $U.name,\
+        'userName': $U.username,\
+        'email': $U.email,\
+        'postId': $P.id,\
+        'title': $P.title,\
+        'body': $P.body\
+      }"
+    }, 'title']
   }
 ]
