@@ -1,14 +1,19 @@
 /* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init */
 import { JSONPath } from 'jsonpath-plus'
 import RJson from 'really-relaxed-json'
-import { URL } from 'url'
+// import { URL } from 'url'
 import fetch from 'cross-fetch'
 import jsonata from 'jsonata'
 import { readFile } from 'node:fs/promises'
 import _ from 'lodash'
 import yargs from 'yargs'
+import path from 'node:path'
+import * as jexiHomePath from '../jexiHomePath.cjs'
 
-const JEXI_HOME = new URL('..', import.meta.url).pathname
+// originally got JEXI_HOME this way (it worked fine except for jest):
+// const JEXI_HOME = new URL('..', import.meta.url).pathname
+// so we're using the jexiHomePath commonjs module instead
+const JEXI_HOME = path.normalize(jexiHomePath.default)
 
 const rjsonParser = RJson.createParser()
 
@@ -31,6 +36,9 @@ export default {
   // where { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
   // note: unlike special forms these have their arguments evaluated *before* they are called
   functions: {
+    'first': array => array[0],
+    'rest': array => array.slice(1),
+    'at': (array, index) => array[index],
     '!': operand => !operand,
     '&&': (lhs, rhs) => lhs && rhs,
     '||': (lhs, rhs) => lhs || rhs,
