@@ -192,7 +192,4 @@ Here's a an example of a little repl session loading the factorial example and t
   (To exit, press Ctrl+C again or Ctrl+D or type .exit)
   ```
 
-* NOTE:  there seems to be an issue with $fetch as implemented here under versions of node.js newer than v16.19.0
-
-  if this isn't resolved by the community soon the version of $fetch here will be changed (the newest versions of node have an experimental version of the whatwg fetch api that is not working for some reason but other options e.g. superagent and axios are available)
-
+* NOTE:  there seemed to be an issue with $fetch as implemented here under v16 versions of node.js after v16.19.0.  It appears resolved in v18+.

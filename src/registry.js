@@ -5,7 +5,7 @@ import { URL } from 'url'
 import fetch from 'cross-fetch'
 import jsonata from 'jsonata'
 import { readFile } from 'node:fs/promises'
-import set from 'lodash.set'
+import _ from 'lodash'
 import yargs from 'yargs'
 
 const JEXI_HOME = new URL('..', import.meta.url).pathname
@@ -296,7 +296,7 @@ export default {
 
         trace(`setting ${path} to eval of ${evaluated}`)
 
-        set(env, path, evaluated)
+        _.set(env, path, evaluated)
       }
 
       // we intentionally evaluate to undefined here
@@ -428,5 +428,7 @@ export default {
     Error,
     JEXI_HOME,
     PWD: process.env.PWD,
+    // lodash functions available as $_.functionName
+    _,
   },
 }

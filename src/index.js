@@ -1,7 +1,6 @@
 /* eslint-disable no-extra-parens, no-underscore-dangle, no-undef-init */
 import builtins from './registry.js'
-import castArray from 'lodash.castarray'
-import get from 'lodash.get'
+import _ from 'lodash'
 
 const getRegistryTable = (registry, tableKey, typeFlag = '') => {
   const lookupTable = registry?.[tableKey] || {}
@@ -126,7 +125,7 @@ export const interpreter = (extensions = {}, options = {}) => {
       // note that we've chosen to omit the "$" prefix on the *actual* keys used in variables
       // (this was done to make variables set by the interpreter and variables set by plain
       // javascript be consistent rather than interpreter ones starting "$" and others not)
-      result = get(env, symbolToString(form))
+      result = _.get(env, symbolToString(form))
     } else {
       trace(`evaluate: passing ${form} thru as plain data`)
     }
@@ -173,7 +172,7 @@ export const interpreter = (extensions = {}, options = {}) => {
         // the equivalent here is the values of all keys are evaluated before the fn is called
         // note: we also wait here for promises (if any) to settle before making the call
         const args = oform[$fnSymbol]
-        const argsArr = args ? castArray(args) : []
+        const argsArr = args ? _.castArray(args) : []
         // note here we need e.g. { $do: [...] } to evaluate the statements in order
         // TBD maybe later offer a "$doparallel"? 
         const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, env))
