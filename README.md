@@ -78,6 +78,8 @@ The key ideas in Jexi are:
 
 * The main Jexi command is simply `jexi`.
 
+  Note: if not npm installing globally, do "npm link" in the root jexi directory prior to doing "npm install" to get the `jexi` command. 
+
   I've saved a few examples here in the relaxed-json format as `.jexi` files alongside their equivalent `.json` versions.
 
   Using jexi you can run those from the command line e.g.
