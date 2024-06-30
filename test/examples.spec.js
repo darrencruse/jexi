@@ -1,10 +1,4 @@
-import { interpreter } from '../src/index.js'
-
-const evalFileAsync = filename => {
-  const jexi = interpreter({}, { trace: false })
-
-  return jexi.evaluate({ $run: filename })
-}
+import { evalFileAsync, $eval, $evalsTo, testWithEnv } from './jexiTestHelpers.js'
 
 describe('example files', () => {
   describe('mapex', () => {
@@ -19,24 +13,20 @@ describe('example files', () => {
 
   // here though the factorial.jexi file is a little "program" we load the "code as data"
   // and test just the factorial function from it:
-  test('factorial.jexi', async () => {
-    const jexi = interpreter({}, { trace: false })
-
-    // create the environment shared across multiple evaluations below: 
-    const env = jexi.createEnv()
-
+  testWithEnv('factorial.jexi', async env => {
     // load the file as jexi (json) forms into the env as 'jsonforms': 
-    await jexi.evaluate({ $load: { file: 'examples/factorial.jexi', as: 'jsonforms' }}, env)
+    await $eval({ $load: 'examples/factorial.jexi', as: 'jsonforms' }, env)
 
     // the first form in the $do array is the factorial function declaration:
-    const factorialDeclaration = await jexi.evaluate({ $first: '$jsonforms.$do' }, env)
+    const factorialDeclaration = await $eval({ $first: '$jsonforms.$do' }, env)
 
     // evaluating that will create the factorial function in the environment:
-    await jexi.evaluate(factorialDeclaration, env)
+    await $eval(factorialDeclaration, env)
 
     // now we can invoke it:
-    expect(await jexi.evaluate({ $factorial: 5 }, env)).toEqual(120)
-    expect(await jexi.evaluate({ $factorial: 12 }, env)).toEqual(479001600)
+    expect(await $eval({ $factorial: 5 }, env)).toEqual(120)
+    $evalsTo({ $factorial: 5 }, env, 120)
+    $evalsTo({ $factorial: 12 }, env, 479001600)
   })
 })
 

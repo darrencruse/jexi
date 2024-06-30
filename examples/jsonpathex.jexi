@@ -47,19 +47,15 @@
         ]
       }
       in: {
-        $foreach: {
-          in: $examples
-          as: $example
-          do: {
-            $console.log: [ $example.path ( $example.description ') ='
-              {
-                $jsonpath: {
-                  path: $example.path
-                  in: $bookStore
-                }
-              }
-            ]
-          }
+        $foreach: $examples
+        as: $example
+        do: {
+          $console.log: [ $example.path ( $example.description ') ='
+            {
+              $jsonpath: $example.path
+              in: $bookStore
+            }
+          ]
         }
       }
     }

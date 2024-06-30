@@ -14,7 +14,8 @@
     "test": "NODE_ENV=test jest",
     "test:dev": "NODE_ENV=test jest --watch",
     "coverage": "NODE_ENV=test jest --coverage --reporter=text",
-    "report": "NODE_ENV=test jest --coverage --reporter=html"
+    "report": "NODE_ENV=test jest --coverage --reporter=html",
+    "jestdbg": "node --inspect-brk=9229 ./node_modules/.bin/jest -i"
   },
   "engines": {
     "node": ">14.x.x"
