@@ -35,27 +35,27 @@ The key ideas in Jexi are:
 
 * Jexi encourages named arguments (ala Smalltalk) using JSON object keys like:
 
-  `{ "$fname": { "argname1": arg1, ..., "argnameN": argN } }`
+  `{ "$fname": fval, "keyword1": keyword1val, ..., "keywordN": keywordNval }`
+
+  where the object above represents a call to the function named `$fname` with keyword arguments named keyword1 through keywordN
 
   e.g. 
   
   ```
   {
-    "$foreach": {
-      "in": [ 0, 1, 2 ],
-      "as": "$elem",
-      "do": {
-        "$console.log": "$elem"
-      }
+    "$foreach": [ 0, 1, 2 ],
+    "as": "$elem",
+    "do": {
+      "$console.log": "$elem"
     }
   }
   ```
 
-  for clarity a function such as the above is referred to as `$foreach/in/as/do`
+  for clarity a function such as the above is referred to as `$foreach/as/do`
 
-  note that by convention the function name `$foreach` is prefixed with `$` but the named arguments (i.e. `in`, `as`, `do`) are not
+  note that the function name `$foreach` is prefixed with `$` but the named arguments (i.e. `as` and `do`) are not
 
-  names preceded with `$` are variables resolved within the environment (e.g. `$foreach` is a function resolved in the environment while `in`, `as`, and `do` are not)
+  names preceded with `$` are variables resolved within the environment (e.g. `$foreach` is a function resolved in the environment while `as`, and `do` are not)
 
 * Since getting all the quotes etc. correct in JSON can be a challenge Jexi makes use of the "relaxed-json" package which allows you to omit the extra quotes on symbols to read nicer (more like JSON in a javascript file allows) and relaxed-json even goes further as you can see here:
 
@@ -63,12 +63,10 @@ The key ideas in Jexi are:
   {
     // most quotes (and even commas) are optional:
     // and yes comments (such as this one :) are allowed
-    $foreach: {
-      in: [ 0 1 2 ]
-      as: $elem
-      do: {
-        $console.log: $elem
-      }
+    $foreach: [ 0 1 2 ]
+    as: $elem
+    do: {
+      $console.log: $elem
     }
   }
   ```
@@ -140,20 +138,15 @@ Here's a an example of a little repl session loading the factorial example and t
     factorial: {
       '$do': [
         {
-          '$function': {
-            name: '$factorial',
-            args: [ '$n' ],
-            do: {
-              '$if': {
-                cond: { '$==': [ '$n', 0 ] },
-                then: 1,
-                else: {
-                  '$*': [
-                    '$n',
-                    { '$factorial': { '$-': [ '$n', 1 ] } }
-                  ]
-                }
-              }
+          '$function': { '$factorial': '$n' },
+          '=>': {
+            '$if': { '$==': [ '$n', 0 ] },
+            then: 1,
+            else: {
+              '$*': [
+                '$n',
+                { '$factorial': { '$-': [ '$n', 1 ] } }
+              ]
             }
           }
         },
@@ -163,20 +156,15 @@ Here's a an example of a little repl session loading the factorial example and t
     }
   }
   jexi> {
-  ...         '$function': {
-  ...           name: '$factorial',
-  ...           args: [ '$n' ],
-  ...           do: {
-  ...             '$if': {
-  ...               cond: { '$==': [ '$n', 0 ] },
-  ...               then: 1,
-  ...               else: {
-  ...                 '$*': [
-  ...                   '$n',
-  ...                   { '$factorial': { '$-': [ '$n', 1 ] } }
-  ...                 ]
-  ...               }
-  ...             }
+  ...         '$function': { '$factorial': [ '$n' ] },
+  ...         '=>': {
+  ...           '$if': { '$==': [ '$n', 0 ] },
+  ...           then: 1,
+  ...           else: {
+  ...             '$*': [
+  ...               '$n',
+  ...               { '$factorial': { '$-': [ '$n', 1 ] } }
+  ...             ]
   ...           }
   ...         }
   ...       }
