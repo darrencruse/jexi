@@ -24,9 +24,8 @@ describe('example files', () => {
     await $eval(factorialDeclaration, env)
 
     // now we can invoke it:
-    expect(await $eval({ $factorial: 5 }, env)).toEqual(120)
-    $evalsTo({ $factorial: 5 }, env, 120)
-    $evalsTo({ $factorial: 12 }, env, 479001600)
+    await $evalsTo({ $factorial: 5 }, env, 120)
+    await $evalsTo({ $factorial: 12 }, env, 479001600)
   })
 })
 

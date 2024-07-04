@@ -9,6 +9,7 @@ import _ from 'lodash'
 import yargs from 'yargs'
 import path from 'node:path'
 import * as jexiHomePath from '../jexiHomePath.cjs'
+import { getFnSymbolForForm } from './utils.js'
 
 // originally got JEXI_HOME this way (it worked fine except for jest):
 // const JEXI_HOME = new URL('..', import.meta.url).pathname
@@ -29,14 +30,7 @@ const jsonataPromise = (expr, data, bindings) => new Promise((resolve, reject) =
 })
 
 const invokeFn = (fn, formOrArgs, env, jexi) => {
-  // I still hope to make the $=> "lamdba" declaration able to make
-  // functions that take the keyword style *or* positional arguments
-  // but right now "_lambda" is hopefully temporary workaround
-  if (fn._keyword) {
-    return fn(formOrArgs, env, jexi)
-  }
-
-  if (fn._lambda) {
+  if (fn._keyword || fn._positional) {
     return fn(formOrArgs, env, jexi)
   }
 
@@ -51,7 +45,7 @@ export default {
   // where { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
   // note: the hope is that plain javascript functions can be used for these
   //   without any special "adapter" code needed for jexi 
-  positionalArgs: {
+  plainFunctions: {
     'first': array => array[0],
     'rest': array => array.slice(1),
     'at': (array, index) => array[index],
@@ -147,8 +141,8 @@ export default {
   // these handle the "object form" invocations with optional keyword arguments
   // e.g. $filter/where, $map/to, $load/as etc. with a main $fn function name and zero or more
   // "named parameter"/"keyword argument"/"refinements" as other object keys (without the "$" prefix)  
-  // in jexi "keywordArgs" handlers differ from "positionalArgs" handlers in how they are called
-  // for "positionalArgs" { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
+  // in jexi "keywordArgs" handlers differ from "plainFunctions" handlers in how they are called
+  // for "plainFunctions" { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
   // CORRECT THE COMMENTS BELOW
   // for "keywordArgs" { $fn: [ arg1, ..., argN ] } means to call $fn([ arg1, ..., argN ], env, jexi) so that:
   // a.  no argument spreading occurs (e.g. the first argument to $fn is always just an array of the args)
@@ -333,35 +327,63 @@ export default {
       return undefined
     },
 
-    // THIS IS CURRENTLY ASSUMING THE LAMDBA HAS TO TAKE POSITIONAL ARGS NOT KEYWORD ARGS
-    // I'D LIKE TO MAKE IT SMARTER BUT ATM HAVEN'T SETTLED ON HOW
-    // MAYBE IT SETS lambda._keyword OR lambda._positional BASED ON HOW THE ARGS ARE PASSED?
-    // $fn/=> = lamdba/anonymous function
-    // { $fn: [ $arg1, ..., $argN], =>: [ function body ] } }
+    // $fn/=> = lamdba (anonymous function)
+    //
+    // with positional arguments:
+    //   { $fn: [ $arg1, ..., $argN], =>: [ function body ] } }
+    //   e.g. { $fn: [ '$x', '$y' ], '=>': { '$+': [ '$x', '$y' ]}}
+    //
+    // with named (keyword) arguments:
+    //   { $fn: { key1: $key1arg, ..., keyN: $keyNarg }, =>: [ function body ] } }
+    //   e.g. { $fn: { $addto: '$x', val: '$y' }, '=>': { '$+': [ '$x', '$y' ]}}
+    //
     'fn': (form, declareContext, { evaluate, createEnv, globals, symbolToString, trace }) => {
       trace('declaring the lambda:', form)
 
-      const { $fn: args, '=>': body } = form
-      const argNames = _.castArray(args)
+      const { $fn: argsSpec, '=>': body } = form
+
+      let positionalParams = undefined
+      let keywordArgsToParams = undefined
+
+      if (typeof argsSpec !== 'object' || Array.isArray(argsSpec)) {
+        // note castArray below allows { $fn: $x => $x } as a shorthand for { $fn: [ $x ] => $x }
+        positionalParams = _.castArray(argsSpec)
+      } else {
+        // with positional args the parameter names are obviously in the order of their array
+        // for keyword args they use the object to map the object key names ("$addto", "val" above)
+        // to their chosen parameter names for each (i.e, the "x", "y" above) 
+        keywordArgsToParams = argsSpec
+        // DELETE parameterNames = Object.values(argsSpec)
+      }
 
       // return a function called later when the $fn is actually called  
       const lambda = async (invokedArgs, env, jexi) => {
         trace('handling lambda called with:', invokedArgs)
 
-        // put the values passed for the arguments into a local scope
-        // note: if called from javascript using the global vars is better than no vars at all
-        //   (e.g. $for does a simple array.forEach which calls this lamdba function directly)
+        // put the values passed for the arguments into a new local scope
+        // note: if called from javascript using globals as the parent is better than no vars at all
+        // (e.g. $for does an array.forEach calling this lamdba function directly with no env/jexi args)
         const localContext = createEnv(jexi?.evaluate ? env : globals || null)
 
-        if (Array.isArray(invokedArgs) && argNames) {
-          argNames.forEach((argsymbol, i) => {
-            const argname = symbolToString(argsymbol)
+        if (positionalParams && Array.isArray(invokedArgs)) {
+          positionalParams.forEach((paramNameSymbol, i) => {
+            const paramName = symbolToString(paramNameSymbol)
 
-            trace('setting arg in local scope:', argname, invokedArgs[i])
-            localContext[argname] = invokedArgs[i]
+            trace('setting arg in local scope:', paramName, invokedArgs[i])
+            localContext[paramName] = invokedArgs[i]
           })
-        } else if (argNames) {
-          const argname = symbolToString(argNames[0] || argNames)
+        } else if (keywordArgsToParams && typeof invokedArgs === 'object') {
+          for (const [ keyword, paramNameSymbol ] of Object.entries(keywordArgsToParams)) {
+            if (invokedArgs[keyword]) {
+              const paramName = symbolToString(paramNameSymbol)
+
+              trace('setting arg in local scope:', paramName, invokedArgs[keyword])
+              localContext[paramName] = invokedArgs[keyword]
+            }
+          }
+        } else if (positionalParams) {
+          // DOUBLE CHECK IS THIS DEFINITELY STILL USED/NEEDED?
+          const argname = symbolToString(positionalParams[0] || positionalParams)
 
           trace('setting arg in local scope:', argname, invokedArgs)
           localContext[argname] = invokedArgs
@@ -376,57 +398,7 @@ export default {
         return result
       }
 
-      lambda._lambda = true
-
-      return lambda
-    },
-
-    // TEMPORARILY CALLING THE BELOW $fun WITH THE INTENTION TO RENAME IT TO $fn LATER AND MERGE IT WITH THE ABOVE ONE 
-    // ALSO: HAVEN'T I ASSUMED POSITIONAL ARGUMENTS IN THE BELOW?  SHOULDN'T I ALSO SUPPORT KEYWORD ARGUMENTS!!?
-    // THE CREATED FUNCTION IS INSTALLED AS A "keywordArgs" 
-    // $fun/=> = lamdba/anonymous function
-    // { $fun: [ $arg1, ..., $argN], =>: [ function body ] }
-    // or for a single argument: { $fun: $arg, =>: [ function body ] }
-    'fun': (form, declareContext, { evaluate, createEnv, globals, symbolToString, trace }) => {
-      trace('declaring the lambda:', form)
-
-      const { $fun: args, '=>': body } = form
-      const argNames = _.castArray(args)
-
-      // THIS PART NEEDS WORK I HAVEN'T SETTLED ON HOW TO DECLARE/HANDLE KEYWORD ARGS
-      // return a function called later when the $fn is actually called 
-      const lambda = async (invokingForm, env, jexi) => {
-        trace('handling lambda called with:', invokingForm)
-
-        // put the values passed for the arguments into a local scope
-        // note: if called from javascript using the global vars is better than no vars at all
-        //   (e.g. $for does a simple array.forEach which calls this lamdba function directly)
-        const localContext = createEnv(jexi?.evaluate ? env : globals || null)
-
-        if (Array.isArray(invokingForm) && argNames) {
-          argNames.forEach((argsymbol, i) => {
-            const argname = symbolToString(argsymbol)
-
-            trace('setting arg in local scope:', argname, invokingForm[i])
-            localContext[argname] = invokingForm[i]
-          })
-        } else if (argNames) {
-          const argname = symbolToString(argNames[0] || argNames)
-
-          trace('setting arg in local scope:', argname, invokingForm)
-          localContext[argname] = invokingForm
-        }
-
-        // evaluate the body of the function with it's args in scope:
-        trace('evaluating body of lambda:', JSON.stringify(body))
-        const result = await evaluate(body, localContext)
-
-        trace('got from evaluating body of lambda:', JSON.stringify(body), 'result:', result)
-
-        return result
-      }
-
-      lambda._keyword = true
+      lambda[keywordArgsToParams ? '_keyword' : '_positional'] = true
 
       return lambda
     },
@@ -449,14 +421,31 @@ export default {
   },
 
   macros: {
-    // NOTE THIS IS STILL ONLY HANDLING POSITIONAL ARGUMENTS
-    // $function/args/=> = a named function
-    // { $function: fnname, args: [ '$arg1', ..., '$argN'], =>: [ function body ] }
-    // e.g. { $function: $print args: $msg =>: { $console.log: $msg }}
-    'function': ({ $function: fname, args, '=>': body }) => ({
-      // NOTE USING $fun BELOW THIS SHOULD CHANGE TO THE UNITIFED $fn LATER
-      $var: { [fname]: { '$fn': args, '=>': body }},
-    }),
+    // $function/=> = a named function
+    //
+    // for positional args:
+    //   { $function: { $fnname: [ '$arg1', ..., '$argN'] }, =>: [ function body ] }
+    // e.g. { $function: { $addem: [ '$x', '$y' ]}, '=>': { '$+': [ '$x', '$y' ]}}
+    //
+    // for named (keyword) args:
+    //   { $function: { $fnname: '$fnvalarg', key1: '$key1arg', ..., keyN: '$keyNarg' }, =>: [ function body ] }
+    // e.g. { $function: { $addto: '$x', val: '$y' }, '=>': { '$+': [ '$x', '$y' ]}}
+    //
+    'function': ({ $function: objectPattern, '=>': body }) => {
+      const $fnSymbol = getFnSymbolForForm(objectPattern)
+      const fnameValue = objectPattern[$fnSymbol]
+
+      // positional args normally use an array (but can omit them for single arg functions)
+      if (Array.isArray(fnameValue) || Object.keys(objectPattern)?.length === 1) {
+        // because the array declares the arg positions to $fn:
+        // e.g. for the above the $fn is: { $fn: [ '$x', '$y' ], '=>': { '$+': [ '$x', '$y' ]}}
+        return { $var: { [$fnSymbol]: { $fn: fnameValue, '=>': body }}}
+      }
+
+      // but the named args come from the keys so $fn gets the object
+      // e.g. for the above the $fn is: { $fn: { $addto: '$x', val: '$y' }, '=>': { '$+': [ '$x', '$y' ]}}
+      return { $var: { [$fnSymbol]: { $fn: objectPattern, '=>': body }}}
+    },
 
     // $foreach/as/do = for each array element do something (this is a simplified version of $for/each)
     // e.g.: { $foreach: [ 0, 1, 2 ], as: $elem, do: { $console.log: $elem } }

@@ -1,6 +1,6 @@
 { $do: [
   {
-    $function: $factorial, args: $n, =>: {
+    $function: { $factorial: $n } =>: {
       $if: { $==: [ $n, 0 ] },
       then: 1,
       // note the quotes around '$*' are currently required

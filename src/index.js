@@ -1,6 +1,10 @@
 /* eslint-disable no-extra-parens, no-underscore-dangle, no-undef-init */
-import builtins from './registry.js'
 import _ from 'lodash'
+import RJson from 'really-relaxed-json'
+import { isSymbol, symbolToString, stringToSymbol, getFnSymbolForForm } from './utils.js'
+import builtins from './registry.js'
+
+const rjsonParser = RJson.createParser()
 
 const getRegistryTable = (registry, tableKey, typeFlag = '') => {
   const lookupTable = registry?.[tableKey] || {}
@@ -15,7 +19,7 @@ const getRegistryTable = (registry, tableKey, typeFlag = '') => {
 }
 
 // construct and return a new interpreter
-// extensions are a registry with keys of positionalArgs/keywordArgs/specialForms/macros/globals
+// extensions are a registry with keys of plainFunctions/keywordArgs/specialForms/macros/globals
 // (extensions add to the builtins to create the initial environment)
 // options are { trace: true|false } (more options to come)
 export const interpreter = (extensions = {}, options = {}) => {
@@ -27,51 +31,19 @@ export const interpreter = (extensions = {}, options = {}) => {
     ...getRegistryTable(builtins, 'specialForms', '_special'),
     ...getRegistryTable(builtins, 'keywordArgs', '_keyword'),
     ...getRegistryTable(builtins, 'macros', '_macro'),
-    ...getRegistryTable(builtins, 'positionalArgs', '_positional'),
+    ...getRegistryTable(builtins, 'plainFunctions', '_plain'),
     ...getRegistryTable(builtins, 'globals'),
 
     // note extensions can override builtins of the same name if they choose
     ...getRegistryTable(extensions, 'specialForms', '_special'),
     ...getRegistryTable(extensions, 'keywordArgs', '_keyword'),
     ...getRegistryTable(extensions, 'macros', '_macro'),
-    ...getRegistryTable(extensions, 'positionalArgs', '_positional'),
+    ...getRegistryTable(extensions, 'plainFunctions', '_plain'),
     ...getRegistryTable(extensions, 'globals'),
   }
 
   // eslint-disable-next-line no-console
   const trace = (...args) => globalEnv.options.trace && console.log.apply(null, args)
-
-  // our "symbols" in JSON strings marked with a prefix "$"
-  // but being sure to ignore money e.g. "$1.50" or syntax that may
-  // arise when embedding *other* expression languages e.g.
-  // jsonpath ("$.prop"), jsonata ("$max(array)") etc.
-  const symRegex = new RegExp('^\\$[^$0-9\\.\\[][^(){}]*$')
-  const isSymbol = atom => typeof atom === 'string' && symRegex.test(atom)
-
-  // converting symbol to string just removes the $ prefix (if it has one)
-  const symbolToString = symbolStr => isSymbol(symbolStr) ? symbolStr.substring(1) : String(symbolStr)
-
-  // converting string to symbol just adds the $ prefix
-  const stringToSymbol = str => !isSymbol(str) ? `$${str.trim()}` : str
-
-  // return the "$function" symbol specified in the provided object form call { $function: [ args ] }.
-  // Otherwise null if there isn't one
-  const getFnSymbolForForm = form => {
-    let fnSymbol = null
-
-    const keys = Object.keys(form) || []
-    const symbols = keys.filter(isSymbol)
-
-    if (symbols.length > 0) {
-      fnSymbol = symbols[0]
-
-      if (symbols.length > 1) {
-        console.warn(`Warning: ambiguous object form with multiple "$function" keys (using ${fnSymbol}):`)
-      }
-    }
-
-    return fnSymbol
-  }
 
   // map an async function to each element of the array, 
   // waiting for each to complete before doing the next 
@@ -134,10 +106,19 @@ export const interpreter = (extensions = {}, options = {}) => {
     return result
   }
 
+  // a convenience function for passing in a jexi (relaxed json) string
+  // instead the already parsed jexi (JSON) forms 
+  const evalJexiStr = (jexiSourceStr, env) => {
+    const jsonStr = rjsonParser.stringToJson(jexiSourceStr)
+
+    return evaluate(JSON.parse(jsonStr), env)
+  }
+
   // this is the instance of the interpreter we return customized according
   // to the extensions they pass into the interpreter() creation function
   const theInterpreter = {
     evaluate,
+    evalJexiStr,
     trace,
     createEnv,
     globals: globalEnv,
@@ -190,20 +171,20 @@ export const interpreter = (extensions = {}, options = {}) => {
           trace(`evaluateObjectForm: calling ${$fnSymbol} with keyword arguments`)
 
           return func(evaluatedForm, env, theInterpreter)
-        } else if (func?._lambda) {
-          // THIS IS HOPEFULLY TEMPORARY THE INTENT WAS TO RETIRE THIS FORM OF INVOCATION
-          // plain (positional arg) functions are the default 
-          // evaluate their args before the call waiting for promises (if any) to settle first
+        } else if (func?._positional) {
+          // positional arg (e.g. lambda) functions are passed the args array as their first parameter
+          // (unlike plain functions where we actually spread the args array into multiple parameters)
+          // evaluate the args before the call waiting for promises (if any) to settle first
           const args = oform[$fnSymbol]
           const argsArr = args ? _.castArray(args) : []
           // note here we need e.g. { $do: [...] } to evaluate the statements in order
-          // TBD maybe later offer a "$doparallel"? 
+          // TBD maybe later ad a "$doparallel" (i.e. they shouldn't *always* need to go in order?) 
           const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, env))
 
           return func(evaluatedArgs, env, theInterpreter)
         }
 
-        // plain (positional arg) functions are the default 
+        // plain functions are the default 
         // evaluate their args before the call waiting for promises (if any) to settle first
         const args = oform[$fnSymbol]
         const argsArr = args ? _.castArray(args) : []
