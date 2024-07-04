@@ -24,7 +24,7 @@
     "no-extra-parens": [ "error", "all", { "ignoreJSX": "all" } ],
     "no-inner-declarations": [ "off" ],
     "no-template-curly-in-string": [ "warn" ],
-    "class-methods-use-this": [ "error", "exceptMethods": [
+    "class-methods-use-this": [ "error", { "exceptMethods": [
       "render",
       "getInitialState",
       "getDefaultProps",
@@ -35,8 +35,8 @@
       "shouldComponentUpdate",
       "componentWillUpdate",
       "componentDidUpdate",
-      "componentWillUnmount",
-    ] ],
+      "componentWillUnmount"
+    ] } ],
     "curly": [ "error" ],
     "default-case": [ "error" ],
     "dot-notation": ["error", { "allowKeywords": true } ],
@@ -149,7 +149,7 @@
     "padding-line-between-statements": [ "error",
       { "blankLine": "always", "prev": "*", "next": "return" },
       { "blankLine": "always", "prev": ["const", "let", "var"], "next": "*" },
-      { "blankLine": "any", "prev": ["const", "let", "var"], "next": ["const", "let", "var"] },
+      { "blankLine": "any", "prev": ["const", "let", "var"], "next": ["const", "let", "var"] }
     ],
     "quote-props": [ "error", "as-needed" ],
     "quotes": [ "error", "single", { "avoidEscape": true } ],
@@ -198,6 +198,6 @@
     "node/no-unsupported-features/node-builtins": [ "error" ],
     "node/prefer-global/text-decoder": [ "error", "never" ],
     "node/prefer-promises/dns": [ "error" ],
-    "node/prefer-promises/fs": [ "error" ],
+    "node/prefer-promises/fs": [ "error" ]
   }
 }

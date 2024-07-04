@@ -9,6 +9,7 @@ import _ from 'lodash'
 import yargs from 'yargs'
 import path from 'node:path'
 import * as jexiHomePath from '../jexiHomePath.cjs'
+import { getFnSymbolForForm } from './utils.js'
 
 // originally got JEXI_HOME this way (it worked fine except for jest):
 // const JEXI_HOME = new URL('..', import.meta.url).pathname
@@ -28,14 +29,23 @@ const jsonataPromise = (expr, data, bindings) => new Promise((resolve, reject) =
   })
 })
 
+const invokeFn = (fn, formOrArgs, env, jexi) => {
+  if (fn._keyword || fn._positional) {
+    return fn(formOrArgs, env, jexi)
+  }
+
+  return fn(...formOrArgs)
+}
+
 // the registry maps the built-in "$symbols" to javascript functions/values.
 // the application adds to by passing similar to the below as "extensions"
 // to the interpreter() create function
 export default {
-  // built-in "$functions" provided by the interpreter
+  // functions taking positional args (evaluated *before* they are called)
   // where { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
-  // note: unlike special forms these have their arguments evaluated *before* they are called
-  functions: {
+  // note: the hope is that plain javascript functions can be used for these
+  //   without any special "adapter" code needed for jexi 
+  plainFunctions: {
     'first': array => array[0],
     'rest': array => array.slice(1),
     'at': (array, index) => array[index],
@@ -127,33 +137,43 @@ export default {
     },
   },
 
-  // built-in "handlers" provided by the interpreter
-  // in jexi "handlers" differ from "functions" (see above) in how they are called
-  // for "functions" { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
-  // for "handlers" { $fn: [ arg1, ..., argN ] } means to call $fn([ arg1, ..., argN ], env, jexi) so that:
+  // built-in keyworded function handlers
+  // these handle the "object form" invocations with optional keyword arguments
+  // e.g. $filter/where, $map/to, $load/as etc. with a main $fn function name and zero or more
+  // "named parameter"/"keyword argument"/"refinements" as other object keys (without the "$" prefix)  
+  // in jexi "keywordArgs" handlers differ from "plainFunctions" handlers in how they are called
+  // for "plainFunctions" { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
+  // CORRECT THE COMMENTS BELOW
+  // for "keywordArgs" { $fn: [ arg1, ..., argN ] } means to call $fn([ arg1, ..., argN ], env, jexi) so that:
   // a.  no argument spreading occurs (e.g. the first argument to $fn is always just an array of the args)
   // b.  access is provided to the variables context thru the env argument
   // c.  the interpreter can be re-entered using jexi.evaluate when necessary
   // d.  tracing can be done using jexi.trace
   // etc.
-  // note: unlike special forms handlers have their arguments evaluated *before* they are called
-  handlers: {
+  // note: it is 
+  keywordArgs: {
     // $eval = evaluate the specified json as jexi code
     // e.g. { $eval: { $read: 'examples/jsonpathex.jexi' } }
-    eval: ([ arg ], env, jexi) => jexi.evaluate(arg, env),
+    eval: ({ $eval }, env, jexi) => jexi.evaluate($eval, env),
 
-    // $for/in/do = for each array element do a lamdba
-    // e.g.: { $for: { in: [ 0, 1, 2 ], do: { '$=>': { args: [ '$elem' ], do: { '$console.log': '$elem' }}}}}
-    'for': async ([{ in: array, do: fn }], env, jexi) => {
+    // $for/do = for each array element do a lamdba
+    // e.g.: { $for: [ 0, 1, 2 ], each: { '$fn': [ '$elem' ], =>: { '$console.log': '$elem' }}}
+    'for': async ({ $for: array, each: fn }, env, jexi) => {
       for await (const elem of array) {
-        fn([ elem ], env, jexi)
+        // note right now I've still got $fun in progress meant to replace $=>
+        // and $=> is still calling the old way passing the args array not passing the "form"
+        // THIS NEEDS TO GET RESOLVED THE SECOND ARG HERE WOULD DIFFER FOR KEYWORD ARGS
+        invokeFn(fn, [ elem ], env, jexi)
       }
     },
 
-    // $map/in/by = map array data using a function
-    // e.g. { $map: { in: [ 0, 1, 2 ], by: { '$=>': { args: [ '$elem' ], do: { '$+': [ '$elem', 1 ]}}}}}
-    'map': async ([{ in: array, by: fn }], env, jexi) => {
-      const mapPromises = array.map(elem => fn([ elem ], env, jexi))
+    // $map/to = map array data using a lambda function
+    // e.g. { $map: [ 0, 1, 2 ], to: { $fn: $elem, =>: { $+: [ $elem 1 ]}}}
+    'map': async ({ $map: array, to }, env, jexi) => {
+      // note as a handler (as opposed to a macro) the => declaration has already been evaluated
+      // to a javascript function
+      // THIS NEEDS TO GET RESOLVED THE SECOND ARG HERE WOULD DIFFER FOR KEYWORD ARGS
+      const mapPromises = array.map(elem => invokeFn(to, [ elem ], env, jexi))
 
       // await promises for the results (if promises came back)
       const resolved = Array.isArray(mapPromises) && mapPromises.length > 0 && mapPromises[0].then ?
@@ -162,32 +182,30 @@ export default {
       return resolved
     },
 
-    // $filter/in/where = filter array data using a predicate
-    // e.g. { $filter: { in: [ -1, 0, 1 ], where: { '$=>': { args: [ '$elem' ], do: { '$>': [ '$elem', 0 ]}}}}}
-    'filter': async ([{ in: array, where: fn }], env, { evaluate }) => {
-      const inOrOut = await evaluate({ $map: { in: array, by: fn }}, env)
+    // $filter/where = filter array data using a predicate
+    // e.g. { $filter: [ -1 0 1 ] where: { $fn: $elem =>: { $>: [ $elem 0 ]}}}
+    'filter': async ({ $filter: array, where: fn }, env, { evaluate }) => {
+      const inOrOut = await evaluate({ $map: array, to: fn }, env)
 
       return array.filter((_elem, i) => inOrOut[i])
     },
 
-    // $jsonpath[/path/in|'path'] = match jsonpath to current environment or specified 'in' json
-    // e.g. using 'in': { $jsonpath: { path: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
-    // or from a var: e.g. { $jsonpath: { path: '$.store.book[*].author', in: $bookStore }}
+    // $jsonpath[/in] = match jsonpath to current environment or specified 'in' json
+    // e.g. using 'in': { $jsonpath: '$.store.book[*].author', in: { store: { book: [ { author: 'Tolkien' }]}}}
+    // or from a var: e.g. { $jsonpath: '$.store.book[*].author', in: $bookStore }
     // or directly to the environment: { $jsonpath: '$.bookStore.store.book[*].author' }
-    'jsonpath': ([ arg ], env) => {
-      const path = typeof arg === 'string' ? arg : arg.path
-      const json = arg.in || env
+    'jsonpath': ({ $jsonpath: path, in: data }, env) => {
+      const json = data || env
 
       return JSONPath({ path, json })
     },
 
-    // $jsonata[/expr/in|'expression'] = run jsonata expression against current environment or specified 'in' json
-    // e.g. using 'in': { $jsonata: { expr: '$.store.book.author', in: { store: { book: [ { author: 'Tolkien' }]}}}}
-    // or from a var: e.g. { $jsonata: { expr: '$.store.book.author', in: $bookStore }}
+    // $jsonata[/in] = run jsonata expression against current environment or specified 'in' json
+    // e.g. using 'in': { $jsonata: '$.store.book.author', in: { store: { book: [ { author: 'Tolkien' }]}}}
+    // or from a var: e.g. { $jsonata: '$.store.book.author', in: $bookStore }
     // or to the environment: { $jsonata: "$.bookStore.store.book.{ 'summary': $.title & ' by ' & $.author }"}
-    'jsonata': async ([ arg ], env) => {
-      const expression = typeof arg === 'string' ? arg : arg.expr
-      const json = arg.in || env
+    'jsonata': async ({ $jsonata: expression, in: data }, env) => {
+      const json = data || env
       let compiled = compiledJsonataMap.get(expression)
 
       if (!compiled) {
@@ -211,19 +229,17 @@ export default {
       }
     },
 
-    // $load[/file/as|'file'] = load a .json or .jexi file 'as' a name (otherwise as the filename sans extension)
-    // (note the file contents are not evaluated - for that see "run/file")
+    // $load[/as] = load a .json or .jexi file 'as' a name (otherwise as the filename sans extension)
+    // (note the file contents are not evaluated - for that see "$run/file")
     // e.g. { $load: 'examples/geodata.jexi' } = load contents of geodata.jexi converted to JSON as $geodata
-    // or { $load: { file: 'examples/data.json', as: 'geodata' } = load contents of data.json as $geodata
-    load: ([ arg ], env, jexi) => {
-      const filepath = typeof arg === 'string' ? arg : arg.file
-
+    // or { $load: 'examples/data.json', as: 'geodata' } = load contents of data.json as $geodata
+    load: ({ $load: filepath, as }, env, jexi) => {
       // eslint-disable-next-line no-unused-vars
       const [ _wholepath, _filepath, filename, filext ] =
         filepath.trim().match(/^(.+?\/)?([^./]+)(\.[^.]*$|$)/)
-      const as = arg.as || filename
+      const varName = as || filename
 
-      return jexi.evaluate({ '$set': { [as]: { '$read': filepath }}}, env)
+      return jexi.evaluate({ '$set': { [varName]: { '$read': filepath }}}, env)
     },
   },
 
@@ -234,11 +250,11 @@ export default {
     // $quote = return the quoted form as plain json unevaluated
     // e.g.  { $quote: '$.store.book[*].author' }
     // IS THIS SUFFICIENT FOR QUOTE?  READ UP ABOUT QUOTE/QUASIQUOTE EG IN THE MAL TUTORIAL?
-    'quote': unevaluatedForm => unevaluatedForm,
+    'quote': ({ $quote: unevaluatedForm }) => unevaluatedForm,
 
     // $new = constructs an instance using javascript "new"
     // example: { $new: { $Date: [ 'December 17, 1995 03:24:00' ] } }
-    'new': async (classAndArgs, env, { evaluate, trace }) => {
+    'new': async ({ $new: classAndArgs }, env, { evaluate, trace }) => {
       trace('in new:', classAndArgs)
 
       const [ classSymbol, constructorArgs ] = Object.entries(classAndArgs)[0]
@@ -253,7 +269,7 @@ export default {
     // example: { $local: { var: {'$x': 1, '$y': 2}, in: [body uses $x and $y] }}
     // note lisps call this "let" but we use "local" to avoid confusion with
     // statically scoped "let" e.g. in languages like javascript 
-    'local': async (varsInObj, env, { evaluate, createEnv, symbolToString, trace }) => {
+    'local': async ({ $local: varsInObj }, env, { evaluate, createEnv, symbolToString, trace }) => {
       trace('in local:', varsInObj)
 
       const { var: declarationsObj, in: body } = varsInObj
@@ -279,7 +295,7 @@ export default {
     // $var defines a variable in the current scope
     // e.g. { $var: { $x: 1, $y: 2 } }
     // note: "$x" is saved as simply "x" in the environment
-    'var': async (declarationsObj, env, { evaluate, symbolToString, trace }) => {
+    'var': async ({ $var: declarationsObj }, env, { evaluate, symbolToString, trace }) => {
       for await (const [ symbol, value ] of Object.entries(declarationsObj)) {
         const name = symbolToString(symbol)
 
@@ -297,7 +313,7 @@ export default {
     // $set assigns a value at a specified path in the environment
     // e.g. { $set: { $x: { y: 1 }, $x.z: 2 } }
     // note: "$x" is stored as simply "x" in the environment
-    'set': async (declarationsObj, env, { evaluate, symbolToString, trace }) => {
+    'set': async ({ $set: declarationsObj }, env, { evaluate, symbolToString, trace }) => {
       for await (const [ symbol, value ] of Object.entries(declarationsObj)) {
         const path = symbolToString(symbol)
         const evaluated = await evaluate(value, env)
@@ -311,31 +327,63 @@ export default {
       return undefined
     },
 
-    // $=>/args/do = lamdba/anonymous function
-    // { $=>: { args: [ $arg1, ..., $argN], do: [ function body ] } }
-    '=>': (argsDoObj, declareContext, { evaluate, createEnv, globals, symbolToString, trace }) => {
-      trace('declaring the lambda:', argsDoObj)
+    // $fn/=> = lamdba (anonymous function)
+    //
+    // with positional arguments:
+    //   { $fn: [ $arg1, ..., $argN], =>: [ function body ] } }
+    //   e.g. { $fn: [ '$x', '$y' ], '=>': { '$+': [ '$x', '$y' ]}}
+    //
+    // with named (keyword) arguments:
+    //   { $fn: { key1: $key1arg, ..., keyN: $keyNarg }, =>: [ function body ] } }
+    //   e.g. { $fn: { $addto: '$x', val: '$y' }, '=>': { '$+': [ '$x', '$y' ]}}
+    //
+    'fn': (form, declareContext, { evaluate, createEnv, globals, symbolToString, trace }) => {
+      trace('declaring the lambda:', form)
 
-      const { args: argNames, do: body } = argsDoObj
+      const { $fn: argsSpec, '=>': body } = form
+
+      let positionalParams = undefined
+      let keywordArgsToParams = undefined
+
+      if (typeof argsSpec !== 'object' || Array.isArray(argsSpec)) {
+        // note castArray below allows { $fn: $x => $x } as a shorthand for { $fn: [ $x ] => $x }
+        positionalParams = _.castArray(argsSpec)
+      } else {
+        // with positional args the parameter names are obviously in the order of their array
+        // for keyword args they use the object to map the object key names ("$addto", "val" above)
+        // to their chosen parameter names for each (i.e, the "x", "y" above) 
+        keywordArgsToParams = argsSpec
+        // DELETE parameterNames = Object.values(argsSpec)
+      }
 
       // return a function called later when the $fn is actually called  
       const lambda = async (invokedArgs, env, jexi) => {
         trace('handling lambda called with:', invokedArgs)
 
-        // put the values passed for the arguments into a local scope
-        // note: if called from javascript using the global vars is better than no vars at all
-        //   (e.g. $for does a simple array.forEach which calls this lamdba function directly)
+        // put the values passed for the arguments into a new local scope
+        // note: if called from javascript using globals as the parent is better than no vars at all
+        // (e.g. $for does an array.forEach calling this lamdba function directly with no env/jexi args)
         const localContext = createEnv(jexi?.evaluate ? env : globals || null)
 
-        if (Array.isArray(invokedArgs) && argNames) {
-          argNames.forEach((argsymbol, i) => {
-            const argname = symbolToString(argsymbol)
+        if (positionalParams && Array.isArray(invokedArgs)) {
+          positionalParams.forEach((paramNameSymbol, i) => {
+            const paramName = symbolToString(paramNameSymbol)
 
-            trace('setting arg in local scope:', argname, invokedArgs[i])
-            localContext[argname] = invokedArgs[i]
+            trace('setting arg in local scope:', paramName, invokedArgs[i])
+            localContext[paramName] = invokedArgs[i]
           })
-        } else if (argNames) {
-          const argname = symbolToString(argNames[0] || argNames)
+        } else if (keywordArgsToParams && typeof invokedArgs === 'object') {
+          for (const [ keyword, paramNameSymbol ] of Object.entries(keywordArgsToParams)) {
+            if (invokedArgs[keyword]) {
+              const paramName = symbolToString(paramNameSymbol)
+
+              trace('setting arg in local scope:', paramName, invokedArgs[keyword])
+              localContext[paramName] = invokedArgs[keyword]
+            }
+          }
+        } else if (positionalParams) {
+          // DOUBLE CHECK IS THIS DEFINITELY STILL USED/NEEDED?
+          const argname = symbolToString(positionalParams[0] || positionalParams)
 
           trace('setting arg in local scope:', argname, invokedArgs)
           localContext[argname] = invokedArgs
@@ -350,22 +398,22 @@ export default {
         return result
       }
 
-      lambda._handler = true
+      lambda[keywordArgsToParams ? '_keyword' : '_positional'] = true
 
       return lambda
     },
 
-    // $if/cond/then/else is a special form because it only evaluates one of the if/else clauses
-    // e.g. { $if: { cond: { '$>': [ '$x', 0 ] }, then: 'some' } }
-    // or { $if: { cond: { '$>': [ '$x', 0 ] }, then: 'some', else: 'none' } }
-    'if': async ({ cond, then, else: otherwise }, env, { evaluate }) =>
+    // $if/then/else is a special form because it only evaluates one of the if/else clauses
+    // e.g. { $if: { '$>': [ '$x', 0 ] }, then: 'some' }
+    // or { $if: { '$>': [ '$x', 0 ] }, then: 'some', else: 'none' }
+    'if': async ({ $if: cond, then, else: otherwise }, env, { evaluate }) =>
       await evaluate(cond, env) ?
         evaluate(then, env) :
         evaluate(otherwise, env),
 
     // this is really just a start at a way to exit evaluating early
     // (I was thinking/hoping evaluate can check this but it doesn't yet)
-    'exit': (_args, _variables, trace, { globals }) => {
+    'exit': (_form, _variables, trace, { globals }) => {
       trace('Setting global _exit flag to abort the evaluation')
 
       globals._exit = true
@@ -373,34 +421,56 @@ export default {
   },
 
   macros: {
-    // $function/name/args/do = a named function
-    // { $function: { name: fnname, args: [ '$arg1', ..., '$argN'], do: [ function body ] }}
-    // e.g. { $function: { name: '$print', args: [ '$msg' ], do: { $console.log: $msg }}}
-    'function': ({ name, args, do: body }) => ({
-      $var: { [name]: { '$=>': { args, do: body }}},
+    // $function/=> = a named function
+    //
+    // for positional args:
+    //   { $function: { $fnname: [ '$arg1', ..., '$argN'] }, =>: [ function body ] }
+    // e.g. { $function: { $addem: [ '$x', '$y' ]}, '=>': { '$+': [ '$x', '$y' ]}}
+    //
+    // for named (keyword) args:
+    //   { $function: { $fnname: '$fnvalarg', key1: '$key1arg', ..., keyN: '$keyNarg' }, =>: [ function body ] }
+    // e.g. { $function: { $addto: '$x', val: '$y' }, '=>': { '$+': [ '$x', '$y' ]}}
+    //
+    'function': ({ $function: objectPattern, '=>': body }) => {
+      const $fnSymbol = getFnSymbolForForm(objectPattern)
+      const fnameValue = objectPattern[$fnSymbol]
+
+      // positional args normally use an array (but can omit them for single arg functions)
+      if (Array.isArray(fnameValue) || Object.keys(objectPattern)?.length === 1) {
+        // because the array declares the arg positions to $fn:
+        // e.g. for the above the $fn is: { $fn: [ '$x', '$y' ], '=>': { '$+': [ '$x', '$y' ]}}
+        return { $var: { [$fnSymbol]: { $fn: fnameValue, '=>': body }}}
+      }
+
+      // but the named args come from the keys so $fn gets the object
+      // e.g. for the above the $fn is: { $fn: { $addto: '$x', val: '$y' }, '=>': { '$+': [ '$x', '$y' ]}}
+      return { $var: { [$fnSymbol]: { $fn: objectPattern, '=>': body }}}
+    },
+
+    // $foreach/as/do = for each array element do something (this is a simplified version of $for/each)
+    // e.g.: { $foreach: [ 0, 1, 2 ], as: $elem, do: { $console.log: $elem } }
+    'foreach': ({ $foreach: array, as, do: body }) => ({
+      '$for': array, 'each': { '$fn': [ as ], '=>': body },
     }),
 
-    // $foreach/in/as/do = for each array element do something (this is a simplified version of $for/in/do)
-    // e.g.: { $foreach: { in: [ 0, 1, 2 ], as: $elem, do: { $console.log: $elem }}}
-    'foreach': ({ in: array, as, do: body }) => ({
-      '$for': { in: array, 'do': { '$=>': { args: [ as ], 'do': body }}},
-    }),
-
-    // $mapeach/in/as/by = map array data using a function
-    // e.g. { $mapeach: { in: [ 0, 1, 2 ], as: $elem, by: { '$+': [ '$elem', 1 ] }}}
-    'mapeach': ({ in: array, as, by: fn }) => ({
-      $map: { in: array, by: { '$=>': { args: [ as ], 'do': fn }}},
+    // $mapeach/as/to = map array data using a function (this is a simplified version of $map/to)
+    // e.g. { $mapeach: [ 0, 1, 2 ], as: $elem, to: { '$+': [ '$elem', 1 ] }}}
+    // HOPEFULLY IN THE FUTURE I SUPPORT THE BELOW AS 'map/as/to' WHERE I CONCATENATE THE OBJECT KEYS
+    // AND LOOK FIRST IN THE REGISTRY FOR THAT AND WHEN NOT FOUND WOULD FALL BACK TO JUST 'map'
+    // IE THIS WAY I DONT HAVE TO NAME THIS $mapeach ITS REALLY JUST A VARATION OF $map
+    'mapeach': ({ $mapeach: array, as, to: body }) => ({
+      $map: array, to: { '$fn': [ as ], '=>': body },
     }),
 
     // $json = identify json as just data
     // this is just an alias for $quote (similar to "list" in lisp)
-    'json': data => ({ $quote: data }),
+    'json': ({ $json }) => ({ $quote: $json }),
 
     // $run[/file|'file'] = execute the contents of .json or .jexi file
     // e.g. { $run: 'examples/geodata.jexi' } = execute the contents of geodata.jexi
     // or { $run: { file: 'examples/data.json' } = run contents of data.json
     // note:  the '/file' option might have alternatives in the future e.g. '/url', '/s3', etc.?
-    run: arg => {
+    run: ({ $run: arg }) => {
       const filepath = typeof arg === 'string' ? arg : arg.file
 
       // note the below is wrapped in $do to get the result of the last operation
@@ -410,7 +480,7 @@ export default {
 
     // $getparameters = get provided input parameters into the environment (as "$parameters" by default)
     // e.g. { $getparameters: [{ alias: "name", describe: "Your name", type: "string", demandOption: true }] }
-    'getparameters': options => {
+    'getparameters': ({ $getparameters: options }) => {
       const parameters = yargs(process.argv.slice(2))
         .usage(`Usage: $0 ${process.argv[2]} ${options.map(opt => `--${opt.alias} [${opt.type}]`).join(' ')}`)
         .demandOption(options.reduce((accum, opt) => opt.demandOption ? [ ...accum, opt.alias ] : accum, []))

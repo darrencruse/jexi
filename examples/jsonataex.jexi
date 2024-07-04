@@ -33,19 +33,15 @@
         ]
       }
       in: {
-        $foreach: {
-          in: $examples
-          as: $example
-          do: {
-            $console.log: [ $example.expr ( $example.description ') ='
-              {
-                $jsonata: {
-                  expr: $example.expr
-                  in: { $read: $example.data }
-                }
-              }
-            ]
-          }
+        $foreach: $examples
+        as: $example
+        do: {
+          $console.log: [ $example.expr ( $example.description ') ='
+            {
+              $jsonata: $example.expr
+              in: { $read: $example.data }
+            }
+          ]
         }
       }
     }

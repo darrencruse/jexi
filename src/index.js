@@ -1,6 +1,10 @@
 /* eslint-disable no-extra-parens, no-underscore-dangle, no-undef-init */
-import builtins from './registry.js'
 import _ from 'lodash'
+import RJson from 'really-relaxed-json'
+import { isSymbol, symbolToString, stringToSymbol, getFnSymbolForForm } from './utils.js'
+import builtins from './registry.js'
+
+const rjsonParser = RJson.createParser()
 
 const getRegistryTable = (registry, tableKey, typeFlag = '') => {
   const lookupTable = registry?.[tableKey] || {}
@@ -15,7 +19,7 @@ const getRegistryTable = (registry, tableKey, typeFlag = '') => {
 }
 
 // construct and return a new interpreter
-// extensions are a registry with keys of specialForms/handlers/functions/macros/globals
+// extensions are a registry with keys of plainFunctions/keywordArgs/specialForms/macros/globals
 // (extensions add to the builtins to create the initial environment)
 // options are { trace: true|false } (more options to come)
 export const interpreter = (extensions = {}, options = {}) => {
@@ -25,54 +29,21 @@ export const interpreter = (extensions = {}, options = {}) => {
     options,
     // "specialForms" are marked _special so we know not to eval their arguments:
     ...getRegistryTable(builtins, 'specialForms', '_special'),
-    // "handlers" are marked _handler so we know to pass them env and jexi.evaluate:
-    ...getRegistryTable(builtins, 'handlers', '_handler'),
+    ...getRegistryTable(builtins, 'keywordArgs', '_keyword'),
     ...getRegistryTable(builtins, 'macros', '_macro'),
-    ...getRegistryTable(builtins, 'functions'),
+    ...getRegistryTable(builtins, 'plainFunctions', '_plain'),
     ...getRegistryTable(builtins, 'globals'),
 
     // note extensions can override builtins of the same name if they choose
     ...getRegistryTable(extensions, 'specialForms', '_special'),
-    ...getRegistryTable(extensions, 'handlers', '_handler'),
+    ...getRegistryTable(extensions, 'keywordArgs', '_keyword'),
     ...getRegistryTable(extensions, 'macros', '_macro'),
-    ...getRegistryTable(extensions, 'functions'),
+    ...getRegistryTable(extensions, 'plainFunctions', '_plain'),
     ...getRegistryTable(extensions, 'globals'),
   }
 
   // eslint-disable-next-line no-console
   const trace = (...args) => globalEnv.options.trace && console.log.apply(null, args)
-
-  // our "symbols" in JSON strings marked with a prefix "$"
-  // but being sure to ignore money e.g. "$1.50" or syntax that may
-  // arise when embedding *other* expression languages e.g.
-  // jsonpath ("$.prop"), jsonata ("$max(array)") etc.
-  const symRegex = new RegExp('^\\$[^$0-9\\.\\[][^(){}]*$')
-  const isSymbol = atom => typeof atom === 'string' && symRegex.test(atom)
-
-  // converting symbol to string just removes the $ prefix (if it has one)
-  const symbolToString = symbolStr => isSymbol(symbolStr) ? symbolStr.substring(1) : String(symbolStr)
-
-  // converting string to symbol just adds the $ prefix
-  const stringToSymbol = str => !isSymbol(str) ? `$${str.trim()}` : str
-
-  // return the "$function" symbol specified in the provided object form call { $function: [ args ] }.
-  // Otherwise null if there isn't one
-  const getFnSymbolForForm = form => {
-    let fnSymbol = null
-
-    const keys = Object.keys(form) || []
-    const symbols = keys.filter(isSymbol)
-
-    if (symbols.length > 0) {
-      fnSymbol = symbols[0]
-
-      if (symbols.length > 1) {
-        console.warn(`Warning: ambiguous object form with multiple "$function" keys (using ${fnSymbol}):`)
-      }
-    }
-
-    return fnSymbol
-  }
 
   // map an async function to each element of the array, 
   // waiting for each to complete before doing the next 
@@ -135,10 +106,19 @@ export const interpreter = (extensions = {}, options = {}) => {
     return result
   }
 
+  // a convenience function for passing in a jexi (relaxed json) string
+  // instead the already parsed jexi (JSON) forms 
+  const evalJexiStr = (jexiSourceStr, env) => {
+    const jsonStr = rjsonParser.stringToJson(jexiSourceStr)
+
+    return evaluate(JSON.parse(jsonStr), env)
+  }
+
   // this is the instance of the interpreter we return customized according
   // to the extensions they pass into the interpreter() creation function
   const theInterpreter = {
     evaluate,
+    evalJexiStr,
     trace,
     createEnv,
     globals: globalEnv,
@@ -146,6 +126,19 @@ export const interpreter = (extensions = {}, options = {}) => {
     getFnSymbolForForm,
     symbolToString,
     stringToSymbol,
+  }
+
+  const evaluateKeys = async (oform, env) => {
+    // note it's important here to make a new object and not mutate the incoming form
+    // (which may get reused e.g. in the body of a for/map/etc.)
+    const evaluatedForm = {}
+
+    // TBD evaluate these in parallel?  is there a reason not to?
+    for await (const [ key, value ] of Object.entries(oform)) {
+      evaluatedForm[key] = await evaluate(value, env)
+    }
+
+    return evaluatedForm
   }
 
   // an object form is { $fnSymbol: [ arg1 ... argN ] }
@@ -161,33 +154,48 @@ export const interpreter = (extensions = {}, options = {}) => {
 
       if (func?._macro) {
         // a macro just returns another form to evaluate:
-        const expandedForm = await func(oform[$fnSymbol], env, theInterpreter)
+        trace(`evaluateObjectForm: calling the ${$fnSymbol} macro`)
+        const expandedForm = await func(oform, env, theInterpreter)
 
         return evaluate(expandedForm, env)
       } else if (func?._special) {
         // special forms are called with their args unevaluated:
-        return func(oform[$fnSymbol], env, theInterpreter)
+        trace(`evaluateObjectForm: calling the ${$fnSymbol} special form`)
+
+        return func(oform, env, theInterpreter)
       } else if (typeof func === 'function') {
-        // regular forms have their args evaluated before they are called
-        // the equivalent here is the values of all keys are evaluated before the fn is called
-        // note: we also wait here for promises (if any) to settle before making the call
+        if (func?._keyword) {
+          const evaluatedForm = await evaluateKeys(oform, env)
+
+          // keyword arg handlers get the evaluated form, env "context" and jexi interpreter:
+          trace(`evaluateObjectForm: calling ${$fnSymbol} with keyword arguments`)
+
+          return func(evaluatedForm, env, theInterpreter)
+        } else if (func?._positional) {
+          // positional arg (e.g. lambda) functions are passed the args array as their first parameter
+          // (unlike plain functions where we actually spread the args array into multiple parameters)
+          // evaluate the args before the call waiting for promises (if any) to settle first
+          const args = oform[$fnSymbol]
+          const argsArr = args ? _.castArray(args) : []
+          // note here we need e.g. { $do: [...] } to evaluate the statements in order
+          // TBD maybe later ad a "$doparallel" (i.e. they shouldn't *always* need to go in order?) 
+          const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, env))
+
+          return func(evaluatedArgs, env, theInterpreter)
+        }
+
+        // plain functions are the default 
+        // evaluate their args before the call waiting for promises (if any) to settle first
         const args = oform[$fnSymbol]
         const argsArr = args ? _.castArray(args) : []
         // note here we need e.g. { $do: [...] } to evaluate the statements in order
         // TBD maybe later offer a "$doparallel"? 
         const evaluatedArgs = await mapAndWait(argsArr, arg => evaluate(arg, env))
 
-        trace(`evaluateObjectForm: calling ${$fnSymbol}`)
+        // spread the evaluated args array as regular args (e.g. to work with 3rd party functions)
+        trace(`evaluateObjectForm: calling the ${$fnSymbol} function (with positional args)`)
 
-        const result = func._handler ?
-          // handlers get the evaluated args, env "context" and jexi interpreter:
-          func(evaluatedArgs, env, theInterpreter) :
-          // plain (non "handler") functions get the evaluated args spread as their args
-          func(...evaluatedArgs)
-
-        trace(`evaluateObjectForm: returning from calling ${$fnSymbol}`, result)
-
-        return result
+        return func(...evaluatedArgs)
       }
 
       // TBD this should probably change to being an error...
@@ -199,20 +207,12 @@ export const interpreter = (extensions = {}, options = {}) => {
     // they can use $quote/$json to mark data they know doesn't need to evaluated
     // TBD is defaulting to evaluating everything the best though?  could I
     //  have e.g. "$template" to indicate eval is needed everywhere but not 
-    //  do that by default (maybe I use $ even on named arguments and only 
+    //  do that by default (maybe I use $ even on keyword arguments and only 
     //  evaluate those when not within a "$template"?)
 
     trace('evaluateObjectForm: evaluating key values of plain object as a template')
 
-    // note it's important here to make a new object and not mutate the incoming form
-    // (which may get reused e.g. in the body of a for/map/etc.)
-    const evaluated = {}
-
-    for await (const [ key, value ] of Object.entries(oform)) {
-      evaluated[key] = await evaluate(value, env)
-    }
-
-    return evaluated
+    return evaluateKeys(oform, env)
   }
 
   return theInterpreter

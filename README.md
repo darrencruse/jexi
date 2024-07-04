@@ -182,7 +182,7 @@ Here's a an example of a little repl session loading the factorial example and t
   ...       }
   undefined
   jexi> $env
-  { factorial: [AsyncFunction: lambda] { _handler: true } }
+  { factorial: [AsyncFunction: lambda] { _keyword: true } }
   jexi> { '$factorial': 5 }
   120
   jexi> { '$console.log': [ 'factorial 40 is:', { '$factorial': 40 } ] }
