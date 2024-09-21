@@ -31,7 +31,7 @@ The key ideas in Jexi are:
 
   in Jexi you write: `{ "$+": [ 1, 1 ] }`
 
-  you can think of single "$" key objects like the above as Jexi's *o-expression* answer to Lisp *s-expressions*  
+  you can think of single "$" key objects like the above as Jexi's *j-expression* answer to Lisp *s-expressions*  
 
 * Jexi encourages named arguments (ala Smalltalk) using JSON object keys like:
 
