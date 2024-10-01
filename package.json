@@ -1,6 +1,6 @@
 {
   "name": "jexi",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Jexi stands for 'json expression interpreter' (it's a lisp with json instead of parens!)",
   "main": "src/index.js",
   "bin": {
