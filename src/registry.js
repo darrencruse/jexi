@@ -1,12 +1,9 @@
 /* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init */
 import { JSONPath } from 'jsonpath-plus'
-import RJson from 'really-relaxed-json'
 // import { URL } from 'url'
 import fetch from 'cross-fetch'
 import jsonata from 'jsonata'
-import { readFile } from 'fs/promises'
 import _ from 'lodash'
-import yargs from 'yargs'
 import path from 'path'
 import * as jexiHomePath from '../jexiHomePath.cjs'
 import { getFnSymbolForForm } from './utils.js'
@@ -15,8 +12,6 @@ import { getFnSymbolForForm } from './utils.js'
 // const JEXI_HOME = new URL('..', import.meta.url).pathname
 // so we're using the jexiHomePath commonjs module instead
 const JEXI_HOME = path.normalize(jexiHomePath.default)
-
-const rjsonParser = RJson.createParser()
 
 const compiledJsonataMap = new Map()
 
@@ -71,39 +66,6 @@ export default {
 
     // $do = do a sequence of operations in an array and return the value of the last one
     'do': (...evaledForms) => evaledForms.length > 0 ? evaledForms[evaledForms.length - 1] : evaledForms,
-
-    // $read = read a .json or .jexi file's contents as JSON
-    // e.g. read contents of data.json: { $read: 'examples/data.json' }
-    // e.g. read contents of geodata.jexi converted to JSON: { $read: 'examples/geodata.jexi' }
-    read: async filepath => {
-      // eslint-disable-next-line no-unused-vars
-      const [ _wholepath, _filepath, filename, extension ] =
-        filepath.trim().match(/^(.+?\/)?([^./]+)(\.[^.]*$|$)/)
-      let contentsStr = undefined
-
-      try {
-        contentsStr = await readFile(filepath, { encoding: 'utf8' })
-      } catch (err) {
-        throw new Error(`Could not read file '${filepath}': ${err}`)
-      }
-
-      let forms = undefined
-
-      try {
-        // note if there's no file extension we still run relaxed-json
-        // (if it's JSON it just comes thru unchanged) 
-        const jsonStr = !extension || extension === '.jexi' ?
-          rjsonParser.stringToJson(contentsStr) :
-          contentsStr
-
-        forms = JSON.parse(jsonStr)
-      } catch (err) {
-        throw new Error(`The file '${filepath}' contains invalid JSON: ${err}`)
-      }
-
-      return forms
-    },
-
 
     // fetch data from a url
     // this uses the whatwg fetch standard "fetch" available in browsers and node.js (via a polyfill)
@@ -480,20 +442,6 @@ export default {
       // note the below is wrapped in $do to get the result of the last operation
       // TBD need to clarify "template" versus "operations" type of usage(?)
       return { '$eval': { '$do': { '$read': filepath }}}
-    },
-
-    // $getparameters = get provided input parameters into the environment (as "$parameters" by default)
-    // e.g. { $getparameters: [{ alias: "name", describe: "Your name", type: "string", demandOption: true }] }
-    'getparameters': ({ $getparameters: options }) => {
-      const parameters = yargs(process.argv.slice(2))
-        .usage(`Usage: $0 ${process.argv[2]} ${options.map(opt => `--${opt.alias} [${opt.type}]`).join(' ')}`)
-        .demandOption(options.reduce((accum, opt) => opt.demandOption ? [ ...accum, opt.alias ] : accum, []))
-        .argv
-
-      delete parameters._
-      delete parameters.$0
-
-      return { '$set': { '$parameters': parameters }}
     },
   },
 

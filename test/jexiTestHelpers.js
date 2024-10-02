@@ -1,6 +1,7 @@
 import { jexiInterpreter } from '../src/index.js'
+import nodeSpecificExtensions from '../src/non-browser.js'
 
-const jexi = jexiInterpreter({}, { trace: false })
+const jexi = jexiInterpreter(nodeSpecificExtensions, { trace: false })
 
 // for testing with json forms:
 export const $eval = (form, env) => jexi.evaluate(form, env)
