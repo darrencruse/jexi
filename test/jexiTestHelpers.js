@@ -1,6 +1,6 @@
-import { interpreter } from '../src/index.js'
+import { jexiInterpreter } from '../src/index.js'
 
-const jexi = interpreter({}, { trace: false })
+const jexi = jexiInterpreter({}, { trace: false })
 
 // for testing with json forms:
 export const $eval = (form, env) => jexi.evaluate(form, env)
