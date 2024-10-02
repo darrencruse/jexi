@@ -143,6 +143,18 @@ export const jexiInterpreter = (extensions = {}, options = {}) => {
     stringToSymbol,
   }
 
+  // invoke their custom "handler" (if they've overriden ours) but if it returns undefined
+  // fallback to our default behavior (i.e. invoke our builtin handler after all) 
+  const invokeHandler = (handlerName, oform, env, theInterpreter) => {
+    let handlerResult = env[handlerName](oform, env, theInterpreter)
+
+    if (handlerResult === undefined && env[handlerName] !== builtins.handlers[handlerName]) {
+      handlerResult = builtins.handlers[handlerName](oform, env, theInterpreter)
+    }
+
+    return handlerResult
+  }
+
   // an object form is { $fnSymbol: [ arg1 ... argN ] }
   // or (for convenience) { $fnSymbol: arg } when there is only one argument
   // eslint-disable-next-line no-unused-vars
@@ -201,12 +213,12 @@ export const jexiInterpreter = (extensions = {}, options = {}) => {
       }
 
       // their $fn symbol key did not resolve in the environment
-      return env.onNotFound(oform, env, theInterpreter)
+      return invokeHandler('onNotFound', oform, env, theInterpreter)
     }
 
     // no $fn symbol key found on the object
     // "onPlainJson" is an optional handler client code can use to intercept and process such non-jexi json:
-    return env.onPlainJson(oform, env, theInterpreter)
+    return invokeHandler('onPlainJson', oform, env, theInterpreter)
   }
 
   return theInterpreter
