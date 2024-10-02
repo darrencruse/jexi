@@ -1,0 +1,10 @@
+{
+  // most quotes (and even commas) are optional:
+  // and yes comments (such as this one :) are allowed
+  $foreach: [ 0 1 2 ]
+  as: $elem
+  do: {
+    $console.log: $elem
+  }
+}
+

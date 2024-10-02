@@ -22,7 +22,7 @@ const getRegistryTable = (registry, tableKey, typeFlag = '') => {
 // extensions are a registry with keys of plainFunctions/keywordArgs/specialForms/macros/globals
 // (extensions add to the builtins to create the initial environment)
 // options are { trace: true|false } (more options to come)
-export const interpreter = (extensions = {}, options = {}) => {
+export const jexiInterpreter = (extensions = {}, options = {}) => {
   // options.trace = true
 
   const globalEnv = {
@@ -32,18 +32,19 @@ export const interpreter = (extensions = {}, options = {}) => {
     ...getRegistryTable(builtins, 'keywordArgs', '_keyword'),
     ...getRegistryTable(builtins, 'macros', '_macro'),
     ...getRegistryTable(builtins, 'plainFunctions', '_plain'),
+    ...getRegistryTable(builtins, 'handlers'),
     ...getRegistryTable(builtins, 'globals'),
 
     // note extensions can override builtins of the same name if they choose
     ...getRegistryTable(extensions, 'specialForms', '_special'),
     ...getRegistryTable(extensions, 'keywordArgs', '_keyword'),
     ...getRegistryTable(extensions, 'macros', '_macro'),
+    ...getRegistryTable(extensions, 'handlers'),
     ...getRegistryTable(extensions, 'plainFunctions', '_plain'),
-    ...getRegistryTable(extensions, 'globals'),
   }
 
   // eslint-disable-next-line no-console
-  const trace = (...args) => globalEnv.options.trace && console.log.apply(null, args)
+  const trace = (...args) => globalEnv.options.trace && globalEnv.log(...args)
 
   // map an async function to each element of the array, 
   // waiting for each to complete before doing the next 
@@ -114,20 +115,6 @@ export const interpreter = (extensions = {}, options = {}) => {
     return evaluate(JSON.parse(jsonStr), env)
   }
 
-  // this is the instance of the interpreter we return customized according
-  // to the extensions they pass into the interpreter() creation function
-  const theInterpreter = {
-    evaluate,
-    evalJexiStr,
-    trace,
-    createEnv,
-    globals: globalEnv,
-    isSymbol,
-    getFnSymbolForForm,
-    symbolToString,
-    stringToSymbol,
-  }
-
   const evaluateKeys = async (oform, env) => {
     // note it's important here to make a new object and not mutate the incoming form
     // (which may get reused e.g. in the body of a for/map/etc.)
@@ -139,6 +126,33 @@ export const interpreter = (extensions = {}, options = {}) => {
     }
 
     return evaluatedForm
+  }
+
+  // this is the instance of the interpreter we return customized according
+  // to the extensions they pass into the jexiInterpreter() creation function
+  const theInterpreter = {
+    evaluate,
+    evalJexiStr,
+    evaluateKeys,
+    trace,
+    createEnv,
+    globals: globalEnv,
+    isSymbol,
+    getFnSymbolForForm,
+    symbolToString,
+    stringToSymbol,
+  }
+
+  // invoke their custom "handler" (if they've overriden ours) but if it returns undefined
+  // fallback to our default behavior (i.e. invoke our builtin handler after all) 
+  const invokeHandler = (handlerName, oform, env, theInterpreter) => {
+    let handlerResult = env[handlerName](oform, env, theInterpreter)
+
+    if (handlerResult === undefined && env[handlerName] !== builtins.handlers[handlerName]) {
+      handlerResult = builtins.handlers[handlerName](oform, env, theInterpreter)
+    }
+
+    return handlerResult
   }
 
   // an object form is { $fnSymbol: [ arg1 ... argN ] }
@@ -198,24 +212,16 @@ export const interpreter = (extensions = {}, options = {}) => {
         return func(...evaluatedArgs)
       }
 
-      // TBD this should probably change to being an error...
-      // i.e. this is more likely a typo than an intention to pass thru data with $ in a key?
-      trace(`evaluateObjectForm: passing thru object with unrecognized symbol key "${$fnSymbol}":`, JSON.stringify(oform, null, 2))
+      // their $fn symbol key did not resolve in the environment
+      return invokeHandler('onNotFound', oform, env, theInterpreter)
     }
 
-    // note the following may be bad for performance with large payloads
-    // they can use $quote/$json to mark data they know doesn't need to evaluated
-    // TBD is defaulting to evaluating everything the best though?  could I
-    //  have e.g. "$template" to indicate eval is needed everywhere but not 
-    //  do that by default (maybe I use $ even on keyword arguments and only 
-    //  evaluate those when not within a "$template"?)
-
-    trace('evaluateObjectForm: evaluating key values of plain object as a template')
-
-    return evaluateKeys(oform, env)
+    // no $fn symbol key found on the object
+    // "onPlainJson" is an optional handler client code can use to intercept and process such non-jexi json:
+    return invokeHandler('onPlainJson', oform, env, theInterpreter)
   }
 
   return theInterpreter
 }
 
-export default interpreter
+export default jexiInterpreter

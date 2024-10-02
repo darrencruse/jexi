@@ -4,10 +4,10 @@ import RJson from 'really-relaxed-json'
 // import { URL } from 'url'
 import fetch from 'cross-fetch'
 import jsonata from 'jsonata'
-import { readFile } from 'node:fs/promises'
+import { readFile } from 'fs/promises'
 import _ from 'lodash'
 import yargs from 'yargs'
-import path from 'node:path'
+import path from 'path'
 import * as jexiHomePath from '../jexiHomePath.cjs'
 import { getFnSymbolForForm } from './utils.js'
 
@@ -39,7 +39,7 @@ const invokeFn = (fn, formOrArgs, env, jexi) => {
 
 // the registry maps the built-in "$symbols" to javascript functions/values.
 // the application adds to by passing similar to the below as "extensions"
-// to the interpreter() create function
+// to the jexiInterpreter() create function
 export default {
   // functions taking positional args (evaluated *before* they are called)
   // where { $fn: [ arg1, ..., argN ] } means to call $fn(arg1, ..., argN)
@@ -135,6 +135,10 @@ export default {
 
       return json
     },
+
+    // by default we just log to the console:
+    // eslint-disable-next-line no-console
+    log: console.log,
   },
 
   // built-in keyworded function handlers
@@ -490,6 +494,37 @@ export default {
       delete parameters.$0
 
       return { '$set': { '$parameters': parameters }}
+    },
+  },
+
+  // "handlers" are extension points for jexi client code to handle jexi interpreter "events"
+  handlers: {
+    // onNotFound is called when jexi encounters a json form with a "$fn" key where "fn" is
+    // not found in the environment (analous to e.g. "missing method" in other languages)
+    'onNotFound': (jsonForm, env, { getFnSymbolForForm, trace }) => {
+      // TBD this should probably change to being an error...
+      // i.e. this is more likely a typo than an intention to pass thru data with $ in a key?
+      // maybe add a global 'strictMode' that if true means error and if false means pass thru?
+      const $fnSymbol = getFnSymbolForForm(jsonForm)
+
+      trace(`onNotFound: passing thru object with unrecognized symbol key "${$fnSymbol}":`, JSON.stringify(jsonForm, null, 2))
+
+      return jsonForm
+    },
+
+    // onPlainJson is called when jexi encounters a json form that has no "$fn" symbol key
+    // and is therefore assumed to be plain json data.  This handler allows client code to
+    // customize how such json is processed (by default we treat it as a json template that
+    // might have jexi forms nested within it)
+    'onPlainJson': (jsonData, env, { evaluateKeys, trace }) => {
+      trace('onPlainJson: evaluating key values of plain object as a template')
+
+      // note the following may be bad for performance with large payloads
+      // they can use $quote/$json to mark data they know doesn't need to evaluated
+      // TBD is defaulting to evaluating everything the best though?  could I
+      //  have e.g. "$template" to indicate eval is needed everywhere but not 
+      //  do that by default
+      return evaluateKeys(jsonData, env)
     },
   },
 
