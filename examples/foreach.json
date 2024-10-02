@@ -1,0 +1,8 @@
+{
+  "$foreach": [ 0, 1, 2 ],
+  "as": "$elem",
+  "do": {
+    "$console.log": "$elem"
+  }
+}
+
