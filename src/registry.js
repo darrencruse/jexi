@@ -1,17 +1,14 @@
 /* eslint-disable implicit-arrow-linebreak, quote-props, no-underscore-dangle, no-undef-init */
 import { JSONPath } from 'jsonpath-plus'
-// import { URL } from 'url'
+import { URL } from 'url'
 import fetch from 'cross-fetch'
 import jsonata from 'jsonata'
 import _ from 'lodash'
-import path from 'path'
-import * as jexiHomePath from '../jexiHomePath.cjs'
 import { getFnSymbolForForm } from './utils.js'
 
 // originally got JEXI_HOME this way (it worked fine except for jest):
-// const JEXI_HOME = new URL('..', import.meta.url).pathname
-// so we're using the jexiHomePath commonjs module instead
-const JEXI_HOME = path.normalize(jexiHomePath.default)
+// note: jest has issues with import.meta.url there's a babel plugin being used to fix it
+const JEXI_HOME = new URL('..', import.meta.url).pathname
 
 const compiledJsonataMap = new Map()
 
