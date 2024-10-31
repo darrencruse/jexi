@@ -49,10 +49,11 @@
     "yargs": "^17.6.2"
   },
   "devDependencies": {
-    "@babel/core": "7.9.0",
-    "@babel/preset-env": "7.9.0",
+    "@babel/core": "7.10.0",
+    "@babel/preset-env": "7.10.0",
     "babel-eslint": "10.0.3",
     "babel-jest": "25.2.4",
+    "babel-plugin-transform-import-meta": "^2.2.1",
     "eslint": "5.16.0",
     "eslint-plugin-jest": "23.8.2",
     "eslint-plugin-node": "9.0.1",
