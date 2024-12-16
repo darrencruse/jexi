@@ -1,5 +1,5 @@
 
-import _ from 'https://cdn.jsdelivr.net/npm/lodash-es@4.17.21/lodash.min.js'
+//import _ from 'https://cdn.jsdelivr.net/npm/lodash-es@4.17.21/lodash.min.js'
 
 const getFirstName = record => record?.first_name ?? record?.firstName
 const getLastName = record => record?.last_name ?? record?.lastName
